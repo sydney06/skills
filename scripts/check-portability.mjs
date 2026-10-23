@@ -41,8 +41,9 @@
 
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const SKILLS_DIR = new URL('../skills/', import.meta.url).pathname;
+const SKILLS_DIR = fileURLToPath(new URL('../skills/', import.meta.url));
 const violations = [];
 const warnings = []; // over WARN_AT but still under budget — visible, not fatal
 const sizes = []; // { rel, words, bytes } per .md file, for the word-count report
@@ -205,8 +206,10 @@ const PARSED_LITERALS = new Set([
 const isExemptTerm = (w) => /^[A-Z0-9-]+$/.test(w) || PARSED_LITERALS.has(w);
 
 function check(path) {
-  const rel = path.slice(SKILLS_DIR.length);
-  const text = readFileSync(path, 'utf8');
+  // Normalize Windows separators and CRLF checkouts so keys, rules, and byte
+  // budgets match what CI sees on Linux.
+  const rel = path.slice(SKILLS_DIR.length).replace(/\\/g, '/');
+  const text = readFileSync(path, 'utf8').replace(/\r\n/g, '\n');
   const isSkillMd = rel.endsWith('/SKILL.md');
 
   // Word-count report data (rule 5 companion): track every .md so a size
