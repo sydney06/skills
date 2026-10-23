@@ -54,6 +54,30 @@ Each skill's instructions live in its `SKILL.md`, which is what every client rea
 
 **Monorepo:** everything scopes to the target workspace, which has its own AGENTS.md, scope, stack, and commands.
 
+**Several separate repos (polyrepo hub):** see [Polyrepo hub mode](#polyrepo-hub-mode) below.
+
+### Polyrepo hub mode
+
+For a product split across independent repos that each deploy on their own (say an API on Render, an admin on Vercel, and mobile apps on EAS), put them in one parent folder and make that folder a **hub**:
+
+```text
+platform/                      ← the hub: a small git repo of its own, no deploys
+├── workflow.repos.json        ← lists the repos: name, path, role, base branch, deploy target, build order
+├── AGENTS.md                  ← platform map
+├── docs/scope/  docs/specs/   ← one plan and one set of specs for every repo (_root for work spanning repos)
+├── backend/                   ← each repo unchanged: own git, own AGENTS.md, own deploys (git ignored by the hub)
+├── admin/
+└── mobile/
+```
+
+1. Install the skills in the hub folder and open your agent there.
+2. Run `/audit`. It detects a folder of repos and offers to set up the hub (writes `workflow.repos.json`, `.gitignore`, the platform `AGENTS.md`, and `git init`s the hub).
+3. Run `/audit <name>` for each repo, then `/scope`, then the usual loop.
+
+Every skill then treats each repo as a workspace (exactly like a monorepo) and runs every `git` and `gh` command inside the repo the work belongs to. Code, tests, and each repo's `AGENTS.md` commit to that repo; plans, specs, and reviews commit to the hub. Skills never build on a repo's base branch, name the deploy target before any push or PR, and ship work that spans repos providers first, staying backward compatible with deployed clients (including installed mobile builds).
+
+The hub logic lives in one `hub.md` per skill, loaded only when `workflow.repos.json` exists, so single repo and monorepo projects pay nothing for it. `npm run test:hub` runs real agent sessions against throwaway fixture repos to check it (costs tokens; see `tests/hub/run.mjs`).
+
 ### The feature loop
 
 ```

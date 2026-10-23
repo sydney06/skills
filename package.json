@@ -1,6 +1,6 @@
 {
   "name": "@jsmastery/skills",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "A phase based engineering workflow as Agent Skills. Takes a change from a vague idea to shipped, verified, documented code, for any AI coding agent.",
   "keywords": [
     "claude-code",
@@ -25,6 +25,7 @@
   "scripts": {
     "check": "node scripts/check-portability.mjs",
     "test": "npm run check",
-    "tokens": "node scripts/analyze-token-usage.mjs"
+    "tokens": "node scripts/analyze-token-usage.mjs",
+    "test:hub": "node tests/hub/run.mjs"
   }
 }
