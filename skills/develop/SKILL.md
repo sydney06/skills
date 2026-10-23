@@ -10,6 +10,8 @@ description: "Run /develop to build a feature, UI or backend, from an approved d
 Write everything this skill produces, files and messages alike, in plain simple language. Talk to the reader as `you`, warm and direct like a colleague, and present every step as a recommendation they may run or skip, never an order. Keep technical terms that carry real meaning; explain each in plain words. Never use a dash or a hyphen as punctuation: no em dash, no en dash, and no hyphenated compounds. Write `read only`, not `read-only`. Say it in simple words, or reword the sentence. Code, file paths, command flags, and values other skills match on keep their hyphens. Use short sentences, commas, or parentheses. Clear beats clever.
 <!-- OUTPUT-STYLE:END -->
 
+**Hub mode:** if `workflow.repos.json` exists at the project root or in its parent folder, read `hub.md` in this skill's folder before anything else and follow it; it overrides how this skill resolves repos, paths, and git.
+
 ## What this skill does
 
 The builder: turns a spec plus project conventions into working code. Tracks: **UI** (components, pages, layouts; `ui-guide.md`), **Logical** (APIs, services, data layers, business logic, integrations; `logical-guide.md`), or both (e.g. "auth" = sign in pages plus session logic → run both). Step 0 gates on the spec so load bearing choices (an auth approach, a payment provider) are decided in `/architect`, not silently invented partway through the build.

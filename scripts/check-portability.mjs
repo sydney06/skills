@@ -98,7 +98,7 @@ const HOT_PATH_BUDGETS = [
   },
   {
     name: 'scope replan/add path',
-    budget: 25 * 1024,
+    budget: 26 * 1024, // fork: +1 KiB for the one line hub mode trigger in SKILL.md
     required: ['scope/SKILL.md', 'scope/scope-template.md'],
     oneOf: ['scope/modes/replan.md', 'scope/modes/add.md'],
   },
@@ -141,7 +141,7 @@ const HOT_PATH_BUDGETS = [
     // Build path: gate router + post-gate build flow + the larger track guide.
     // The gate-only path (route to /architect) reads SKILL.md alone.
     name: 'develop build path',
-    budget: 51 * 1024,
+    budget: 52 * 1024, // fork: +1 KiB for the one line hub mode trigger in SKILL.md
     required: ['develop/SKILL.md', 'develop/flow/build.md'],
     oneOf: ['develop/ui-guide.md', 'develop/logical-guide.md'],
   },
@@ -161,6 +161,72 @@ const HOT_PATH_BUDGETS = [
       'develop/checklist.md',
     ],
     oneOf: ['develop/ui/mcp.md', 'develop/ui/image.md', 'develop/ui/existing.md', 'develop/ui/generate.md'],
+  },
+  // Fork: polyrepo hub mode. Each hub path is the normal path plus that skill's
+  // hub.md, which loads only when workflow.repos.json is present, so single repo
+  // and monorepo runs never pay for it. Ceilings sit about 10% above real size.
+  {
+    name: 'hub: scope plan path',
+    budget: 58 * 1024,
+    required: ['scope/SKILL.md', 'scope/hub.md', 'scope/modes/plan.md', 'scope/modes/plan-monorepo.md', 'scope/scope-template.md', 'scope/approaches/facade.md'],
+  },
+  {
+    name: 'hub: scope replan/add path',
+    budget: 34 * 1024,
+    required: ['scope/SKILL.md', 'scope/hub.md', 'scope/scope-template.md'],
+    oneOf: ['scope/modes/replan.md', 'scope/modes/add.md'],
+  },
+  {
+    name: 'hub: audit path',
+    budget: 36 * 1024,
+    required: ['audit/SKILL.md', 'audit/hub.md', 'audit/modes/tool-skills.md'],
+    oneOf: ['audit/modes/whole-repo.md', 'audit/modes/gapfill.md', 'audit/modes/area.md', 'audit/modes/greenfield.md'],
+  },
+  {
+    name: 'hub: architect main full-design path',
+    budget: 84 * 1024,
+    required: ['architect/SKILL.md', 'architect/hub.md', 'architect/internal/design-conversation.md', 'architect/internal/after-subagent.md'],
+  },
+  {
+    name: 'hub: develop build path',
+    budget: 64 * 1024,
+    required: ['develop/SKILL.md', 'develop/hub.md', 'develop/flow/build.md'],
+    oneOf: ['develop/ui-guide.md', 'develop/logical-guide.md'],
+  },
+  {
+    name: 'hub: check verify path',
+    budget: 32 * 1024,
+    required: ['check/SKILL.md', 'check/hub.md', 'check/modes/verify.md'],
+  },
+  {
+    name: 'hub: check review path',
+    budget: 28 * 1024,
+    required: ['check/SKILL.md', 'check/hub.md', 'check/modes/review.md'],
+  },
+  {
+    name: 'hub: test write path',
+    budget: 26 * 1024,
+    required: ['test/SKILL.md', 'test/hub.md'],
+  },
+  {
+    name: 'hub: test setup path',
+    budget: 32 * 1024,
+    required: ['test/SKILL.md', 'test/hub.md', 'test/modes/setup.md'],
+  },
+  {
+    name: 'hub: document path',
+    budget: 17 * 1024,
+    required: ['document/SKILL.md', 'document/hub.md'],
+  },
+  {
+    name: 'hub: sync path',
+    budget: 24 * 1024,
+    required: ['sync/SKILL.md', 'sync/hub.md'],
+  },
+  {
+    name: 'hub: debug path',
+    budget: 14 * 1024,
+    required: ['debug/SKILL.md', 'debug/hub.md'],
   },
 ];
 

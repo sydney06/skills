@@ -10,6 +10,8 @@ description: "Run /sync as the last step after a change is complete, around merg
 Write everything this skill produces, files and messages alike, in plain simple language. Talk to the reader as `you`, warm and direct like a colleague, and present every step as a recommendation they may run or skip, never an order. Keep technical terms that carry real meaning; explain each in plain words. Never use a dash or a hyphen as punctuation: no em dash, no en dash, and no hyphenated compounds. Write `read only`, not `read-only`. Say it in simple words, or reword the sentence. Code, file paths, command flags, and values other skills match on keep their hyphens. Use short sentences, commas, or parentheses. Clear beats clever.
 <!-- OUTPUT-STYLE:END -->
 
+**Hub mode:** if `workflow.repos.json` exists at the project root or in its parent folder, read `hub.md` in this skill's folder before anything else and follow it; it overrides how this skill resolves repos, paths, and git.
+
 ## What this skill does
 
 Closes the loop on a completed change: syncs AGENTS.md files, the scope, and linked spec `**Status**:` lines to what the repo now shows, and flags what it must not edit (stale specs, curated prose). The Boundaries table below is the exact contract.
