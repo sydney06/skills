@@ -38,6 +38,7 @@ Workspace = repo. Infer the platform per repo from its `AGENTS.md` (API, web, or
 - `## Feature design` API surface: mark each endpoint, event, or field as **new**, **changed (backward compatible)**, or **breaking**. A breaking change needs an explicit transition (version the endpoint, accept both shapes for a window, or gate by minimum app version) recorded as a decision, never left to `/develop`.
 - `## Consequences` must state: the rollout order across repos with each repo's `deploy` target, what a consumer still on the previous version sees, and when the old path can be removed.
 - Value sourcing: a value one repo displays but another produces names the producing repo and field.
+- Commands the build plan depends on (CLI flags, config evaluation, host commands): run each in a read only form (`--help`, `list`) before accepting the plan, and correct flags or preconditions that do not hold. One you could not run goes under the spec's Risks.
 
 ### After the spec (scope linking)
 

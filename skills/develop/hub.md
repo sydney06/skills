@@ -36,6 +36,7 @@ The scope file is `HUB/docs/scope/<name>/` or `HUB/docs/scope/_root/`; the spec 
 - Work inside `<path>`: its stack, its `design.md` (UI lives per repo), its commands run from `<path>`. A `scout` map, when used, is briefed with the one repo.
 - A `_root` spec's `## Build plan` tasks are tagged `[name]`. Build them in `order`, one repo at a time: finish and typecheck the provider repo's tasks before starting a consumer, so the consumer binds to a real interface. Keep every provider change backward compatible as the spec states; a needed breaking change that the spec does not cover is a spec gap (route to `/architect`).
 - Mobile clients: never assume a provider change reaches installed builds at the same time. If the spec relies on a minimum app version or a feature flag, build that gate.
+- Host writes (EAS variables, Render or Vercel settings, store consoles): run only the ones the spec assigns to you and your permissions allow. A denied write is never retried another way. List the exact commands with variable names, never values, under Heads up, leave the milestone unticked, and say who runs them.
 
 ### Step 4, update and report
 
