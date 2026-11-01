@@ -20,9 +20,9 @@ A hub is a folder holding several independent git repos plus a `workflow.repos.j
 
 ## How /debug changes in hub mode
 
-- **Step 0:** name the repo the symptom shows up in, and the repo it may come from (a client error can originate in the API). Resolve both from `workflow.repos.json`.
+- **Step 0:** name the repo the symptom shows up in, and the repo it may come from (a client error can originate in the API). Resolve both from `workflow.repos.json`. Then look in `HUB/docs/scope/<name>/` (and `HUB/docs/scope/progress.md` if it exists) for a row that covers the symptom, and note its number or that none exists. Never write to `docs/scope/`: `/scope` owns the rows.
 - **Step 1:** reproduce with each repo's own commands, run from `<path>`; when the bug crosses repos, run the provider locally and point the client at it. Never reproduce against a deployed production environment.
 - **Step 2:** history bisects run in the repo that changed: `git -C <path> bisect …`, `git -C <path> log -p -- <file>`. When the cause may be a provider change, compare the provider's recent commits with the consumer's expectations (the shared spec in `HUB/docs/specs/_root/`).
 - **Step 5:** the fix lives in the repo that holds the cause. A provider fix stays backward compatible with deployed consumers, including installed mobile builds. If the real cause is the contract itself, lead with that and point to `/architect` on the `_root` spec.
 - **Step 6:** the regression test goes in the repo that was fixed. Check siblings in every repo with a similar `role` (two mobile apps often share the same bug).
-- **Report:** name the repo fixed and its `deploy` target.
+- **Report:** name the repo fixed and its `deploy` target, then add a `Scope:` line. With a row, say which box the fix completes (the engineer or `/scope` ticks it). With none, say so and give a ready line for the engineer to run: `/scope enroll <the bug, one line>` with the severity, the repos in `order`, and the evidence (commits, review files, recordings). A fix with no row is a tracking gap, not a reason to stop.
