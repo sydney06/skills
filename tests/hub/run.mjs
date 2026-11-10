@@ -61,6 +61,11 @@ const ranGitIn = (run, repo) => bashCmds(run).some((c) => {
 const approvedCols = (hub) => readFileSync(join(hub, 'docs/billing/retainer-schedule.md'), 'utf8').split('\n')
   .filter((l) => /^\|\s*(Month|[A-Z][a-z]{2} \d{4})\s*\|/.test(l))
   .map((l) => l.split('|').slice(1, 5).map((c) => c.trim()).join('|')).join('\n');
+// Numbers in `s` with "N min" read as hours, skipping times like 12:00, so 2.5 = 2.50 and 150 = 150.00.
+const nums = (s) => [...s.matchAll(/(?<![\d.:])(\d+(?:\.\d+)?)(?![\d:])(\s*min\b)?/gi)].map((m) => (m[2] ? m[1] / 60 : +m[1]));
+const near = (v) => (n) => Math.abs(n - v) < 0.01;
+// Numbers after `label` on every line that has it.
+const numsAfter = (text, label) => text.split('\n').flatMap((l) => { const i = l.search(label); return i < 0 ? [] : nums(l.slice(i)); });
 const branch = (dir) => git(dir, 'rev-parse', '--abbrev-ref', 'HEAD');
 const sha = (dir, ref) => git(dir, 'rev-parse', ref);
 const listFiles = (dir, skip = []) => readdirSync(dir, { recursive: true, withFileTypes: true })
@@ -185,14 +190,25 @@ const SCENARIOS = {
       // Scoped to the Sessions section: ledger 7's lockfile commit is authored at 12:00 and may be listed elsewhere.
       const sessionsPart = audit.split(/^## /m).find((s) => /^Sessions\b/.test(s)) ?? '';
       const sessions = sessionsPart.split('\n').filter((l) => /^\|\s*\d+\s*\|/.test(l));
-      const is90 = (l) => /(^|[^\d.])1\.5\s*(h|hr|hrs|hours?)\b|(^|[^\d.])90\s*min/i.test(l);
-      const is60 = (l) => /(^|[^\d.])1(\.0+)?\s*(h|hr|hrs|hours?)\b|(^|[^\d.])60\s*min/i.test(l);
-      ok(sessions.length === 2 && sessions.some(is90) && sessions.some(is60), `two sessions of 1.5 h (90 min) and 1.0 h (60 min) from author dates (${sessions.length} found)`);
+      // Length cell: the first number followed by h, else the first number followed by min, / 60.
+      const lenHead = sessionsPart.split('\n').find((l) => /^\|[^\n]*Length/i.test(l)) ?? '';
+      const lenCol = lenHead.split('|').findIndex((c) => /Length/i.test(c));
+      const lengthHours = (l) => {
+        const cells = l.split('|');
+        const cell = cells[lenCol > 0 ? lenCol : cells.length - 2] ?? '';
+        const h = cell.match(/(?<![\d.])(\d+(?:\.\d+)?)\s*(h|hrs?|hours?)\b/i);
+        const m = cell.match(/(?<![\d.])(\d+(?:\.\d+)?)\s*min\b/i);
+        return h ? +h[1] : m ? m[1] / 60 : NaN;
+      };
+      const lengths = sessions.map(lengthHours);
+      ok(sessions.length === 2 && lengths.some(near(1.5)) && lengths.some(near(1.0)), `two sessions of 1.5 h (90 min) and 1.0 h (60 min) from author dates (${sessions.length} found: ${lengths.join(', ')} h)`);
       ok(sessions.some((l) => /15:30/.test(l)) && !sessions.some((l) => /12:00/.test(l)), 'session ends use author times (15:30), not the push time (12:00)');
-      ok(/Measured hours[^\n]*((^|[^\d.])2\.50*(?![\d.]*\d)|(^|[^\d.])150\s*min)/i.test(audit), 'measured hours 2.5 (or 150 min) on the Measured hours line');
+      ok(numsAfter(audit, /Measured hours/i).some(near(2.5)), 'measured hours 2.5 (or 150 min) on the Measured hours line');
       const seen = audit + '\n' + run.text;
-      ok(/\b150\.00\b/.test(seen), 'effort fee 150.00 printed (2.5 h x 60)');
-      ok(/\b125\.00\b/.test(seen), 'solo fee 125.00 printed (2.5 h x 2.0 = 5.0 h; 5.0 x 25)');
+      // Fee cell (last cell) of the Effort or Solo row in the Fees table.
+      const feeCell = (name) => nums(audit.split('\n').find((l) => new RegExp(`^\\|\\s*${name}\\b`, 'i').test(l))?.split('|').filter((c) => c.trim()).at(-1) ?? '');
+      ok(feeCell('Effort').some(near(150)), 'effort fee 150.00 printed (2.5 h x 60)');
+      ok(feeCell('Solo').some(near(125)), 'solo fee 125.00 printed (2.5 h x 2.0 = 5.0 h; 5.0 x 25)');
       ok(/reference/i.test(seen), 'reference fee printed');
       const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
       const row = ledger.split('\n').find((l) => /^\|\s*6\s*\|/.test(l)) ?? '';
@@ -262,19 +278,19 @@ const SCENARIOS = {
           ok(!/Measured hours/i.test(audit) && !/(^|[^\d.])2\.50*\s*(h|hrs?|hours?)\b|(^|[^\d.])150\s*min/i.test(audit) && !/\b150\.00\b/.test(audit),
             'no commit hours: no Measured hours, no 2.5 h, no effort fee 150.00');
           ok(/package-lock\.json/.test(audit) && /generated[\\/]prisma/.test(audit), 'excluded lockfile and generated Prisma client named');
-          ok(/Size score[^\n]*(^|[^\d.])7(\.0+)?(?![\d.]*\d)/i.test(audit), 'size score 7.0 (3 routes 3.0 + migration 1.5 + 2 emails 1.0 + 300 lines 1.5)');
-          ok(rows.some((l) => /(^|[^\d.])4\.80*\b/.test(l) && /(^|[^\d.])2\.40*\b/.test(l)), 'calibration row for item 1: 120 / 25 = 4.8 h, 4.8 / 2.0 = 2.4 h per point');
-          ok(rows.some((l) => /(^|[^\d.])8(\.0+)?\b/.test(l) && /(^|[^\d.])1\.60*\b/.test(l)), 'calibration row for item 2: 200 / 25 = 8 h, 8 / 5.0 = 1.6 h per point');
-          ok(/median[^\n]*(^|[^\d.])2(\.0+)?(?![\d.]*\d)/i.test(audit), 'median 2.0 h per point ((2.4 + 1.6) / 2)');
-          ok(/Solo hours[^\n]*(^|[^\d.])14(\.0+)?(?![\d.]*\d)/i.test(audit), 'solo hours 14.0 (7.0 x 2.0)');
-          ok(/\b350\.00\b|\*\*350\*\*/.test(audit), 'fee 350.00 (14.0 x 25)');
-          ok(/\bLow\b[^\n]*\b280(\.00)?\b/.test(audit) && /\bHigh\b[^\n]*\b420(\.00)?\b/.test(audit), 'low 280.00 (7.0 x 1.6 x 25) and high 420.00 (7.0 x 2.4 x 25), already multiples of 5 so nearest 5 keeps them');
+          ok(numsAfter(audit, /Size score/i).some(near(7)), 'size score 7.0 (3 routes 3.0 + migration 1.5 + 2 emails 1.0 + 300 lines 1.5)');
+          ok(rows.some((l) => nums(l).some(near(4.8)) && nums(l).some(near(2.4))), 'calibration row for item 1: 120 / 25 = 4.8 h, 4.8 / 2.0 = 2.4 h per point');
+          ok(rows.some((l) => nums(l).some(near(8)) && nums(l).some(near(1.6))), 'calibration row for item 2: 200 / 25 = 8 h, 8 / 5.0 = 1.6 h per point');
+          ok(numsAfter(audit, /median/i).some(near(2)), 'median 2.0 h per point ((2.4 + 1.6) / 2)');
+          ok(numsAfter(audit, /Solo hours/i).some(near(14)), 'solo hours 14.0 (7.0 x 2.0)');
+          ok(numsAfter(audit, /\bFee\b/).some(near(350)), 'fee 350.00 (14.0 x 25)');
+          ok(numsAfter(audit, /\bLow\b/).some(near(280)) && numsAfter(audit, /\bHigh\b/).some(near(420)), 'low 280.00 (7.0 x 1.6 x 25) and high 420.00 (7.0 x 2.4 x 25), already multiples of 5 so nearest 5 keeps them');
           ok(/Confidence[^\n]*\bLow\b/i.test(audit), 'confidence Low (two anchors, under three)');
           ok(/\bSOW\b/.test(run.text) && /\bSOW\b[^\n]*pending|pending[^\n]*\bSOW\b/i.test(audit), 'asks for the SOW date and leaves the increment pending');
           ok(!/\bApproved\b/.test(audit), 'legacy audit never contains the word Approved');
           const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
           const row = ledger.split('\n').find((l) => /^\|\s*7\s*\|/.test(l)) ?? '';
-          ok(/Proposed/i.test(row) && /\b350\.00\b/.test(row) && /\bPending\b/.test(row) && !/\bApproved\b/.test(row.replace(/Approved \(/g, '')), 'ledger row 7 Proposed at 350.00, Approved still Pending');
+          ok(/Proposed/i.test(row) && nums(row).some(near(350)) &&/\bPending\b/.test(row) && !/\bApproved\b/.test(row.replace(/Approved \(/g, '')), 'ledger row 7 Proposed at 350.00, Approved still Pending');
           ok(/n\/a \(legacy: contract rate\)/.test(row), 'ledger row 7 rate and speed factor cell says "n/a (legacy: contract rate)"');
           const head = ledger.split('\n').find((l) => /\|\s*SOW signed\s*\|/.test(l)) ?? '';
           const col = head.split('|').findIndex((c) => c.trim() === 'SOW signed');
