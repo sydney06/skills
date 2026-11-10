@@ -150,6 +150,24 @@ const otherCellsChanged = (before, after) => [...new Set([...Object.keys(before)
   .filter((c) => !['SOW status', 'SOW acknowledged'].includes(c) && (before[c] ?? '') !== (after[c] ?? ''));
 // A money cell ("1,330.00", "**30.00**") as a number.
 const money = (c) => parseFloat(String(c ?? '').replace(/[*,\s$]|USD/gi, ''));
+// The hub's own Increment detail header, which approve step 4 names for a recreated table.
+const DETAIL_HEADER = ['Feature', 'Approved fee', 'Increment (15%)', 'Deployed', 'Warranty ends', 'Increment starts'];
+// Faults in a recreated Increment detail table for line 8, read by those header names ([] = none): that exact
+// header, exactly one line 8 row, Approved fee 200.00, Increment (15%) 30.00, Increment starts 2026-12-01 or Dec 2026.
+const recreatedDetailFaults = (sched) => {
+  const cells = (l) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+  const ls = section(sched, /^Increment detail/i).split('\n').filter((l) => l.startsWith('|'));
+  if (!ls.length) return ['no table under the heading'];
+  const head = cells(ls[0]);
+  const faults = head.join(' | ') === DETAIL_HEADER.join(' | ') ? [] : [`header is ${ls[0].trim()}`];
+  const rows = ls.slice(2).filter((l) => /Driver ratings|^\|\s*8\b/i.test(l));
+  if (rows.length !== 1) return [...faults, `${rows.length} rows for line 8`];
+  const row = Object.fromEntries(head.map((c, k) => [c, cells(rows[0])[k] ?? '']));
+  if (!near(200)(money(row['Approved fee']))) faults.push(`Approved fee ${row['Approved fee'] ?? 'missing'}`);
+  if (!near(30)(money(row['Increment (15%)']))) faults.push(`Increment (15%) ${row['Increment (15%)'] ?? 'missing'}`);
+  if (!startsOn(row['Increment starts'] ?? '', '2026-12-01')) faults.push(`Increment starts ${row['Increment starts'] ?? 'missing'}`);
+  return faults;
+};
 const scopeUntouched = (f) => git(f.hub, 'status', '--porcelain', 'docs/scope', 'docs/specs') === '';
 const noPush = (run) => !bashCmds(run).some((c) => /git\s+(-C\s+\S+\s+)?push\b|gh\s+pr\s+(create|edit|merge)\b/.test(c));
 const sowFiles = (f) => { const d = join(f.hub, 'docs/billing/sows'); return existsSync(d) ? readdirSync(d) : []; };
@@ -642,6 +660,8 @@ const SCENARIOS = {
           ok(/^## Increment detail\s*$/m.test(sched), 'approve created the ## Increment detail heading');
           ok(startsOn('Dec 2026', '2026-12-01') && startsOn('December 2026', '2026-12-01') && startsOn('2026-12-01', '2026-12-01') && !startsOn('Jan 2027', '2026-12-01'),
             'Starts helper accepts Dec 2026, December 2026 and 2026-12-01 as a 2026-12-01 start and rejects Jan 2027');
+          const faults = recreatedDetailFaults(sched);
+          ok(faults.length === 0, `recreated table has the hub header and one line 8 row: Approved fee 200.00, Increment (15%) 30.00, Increment starts Dec 2026 (${faults.join('; ') || 'all match'})`);
           const months = ['Dec 2026', 'Mar 2027'].map((m) => {
             const re = new RegExp(`^\\|\\s*${m}\\s*\\|`);
             return [m, money(tableCell(sched, re, 'Approved increments')), money(tableCell(sched, re, 'Fee'))];
