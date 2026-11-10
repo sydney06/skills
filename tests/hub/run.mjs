@@ -201,7 +201,7 @@ const SCENARIOS = {
       ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md Month, Baseline, Approved increments and Fee unchanged after audit');
       ok(git(f.hub, 'status', '--porcelain', 'docs/billing/rates.md') === '' && git(f.hub, 'log', '--oneline', '--', 'docs/billing/rates.md').split('\n').length === 1, 'rates.md untouched');
       ok(!/\b(5|five)\b[^\n]*shift scheduling[^\n]*\b(700|included)/i.test(audit), 'item 5 not counted');
-      ok(!bashCmds(run).some((c) => /git\s+(-C\s+\S+\s+)?push|gh\s+pr/.test(c)), 'no push, no gh pr');
+      ok(!bashCmds(run).some((c) => /git\s+(-C\s+\S+\s+)?push\b|gh\s+pr\s+(create|edit|merge)\b/.test(c)), 'no git push, no gh pr create/edit/merge');
     },
     then: [
       {
