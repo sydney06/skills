@@ -1,6 +1,6 @@
 # /price quote
 
-`/price quote <feature>`. Refuse when the ledger line is not in State Planned or Estimated (no line → recommend `/price classify`; a SOW already Sent or Acknowledged → the SOW holds the estimate, recommend `sow raise`). Read `templates/estimate.md` before step 4.
+`/price quote <feature>`. Refuse when the ledger line is not in State Planned or Estimated, or has any SOW no., a Draft included (no line → recommend `/price classify`; a SOW no. → the SOW holds the estimate, recommend `sow decline` or `sow raise`). Read `templates/estimate.md` before step 4.
 
 1. **Read the plan:** the scope row, its Done when lines and its spec (build plan, API surface, data changes, screens). Never read commits for this feature. → the sources listed.
 2. **Size signals from the plan:** the signals of `size-weights.md`, each with the plan line it came from. Hand written lines: the plan's own figure, else your estimate from the files the plan names, marked estimated. → each signal with its source.

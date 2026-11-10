@@ -32,7 +32,7 @@ Rates row dated <date>: feature rate <n>, contract rate <n>, speed factor <n>. P
 
 **Proposed fee:** <median, nearest 5> · **Low:** <n> · **High:** <n>
 Spread over 40%: no | yes, why, and the basis the owner chose.
-With an Estimate: fee = SOW Current fee <n>, unchanged by the hours · effective rate = fee / measured hours = <n> (information only) · effort fee vs Ceiling <n>: within | above (a raise needs the client's reply).
+With an Estimate: fee = SOW Current fee, else the ledger Estimate when there is no SOW, <n>, unchanged by the hours · effective rate = fee / measured hours = <n> (information only) · effort fee vs Ceiling <n>: within | above (a raise needs the client's reply).
 
 ## Dates and retainer effect
 Deployed: <date and source> | unknown (needed: <what>). Warranty ends: <date>. Increment starts: <1st of month>.
@@ -60,4 +60,4 @@ Median <n> · lowest <n> · highest <n> · not found: <items or none>.
 Solo hours = score x median = <n>. Fee = solo hours x contract rate = <n>, nearest 5: **<n>**. Low = score x lowest x rate = <n>, nearest 5: **<n>**. High = score x highest x rate = <n>, nearest 5: **<n>**.
 Closest anchor: <item>. **Confidence:** Medium | Low (reason).
 
-Increment starts: <1st of month after the Retroactive SOW> | pending the SOW date. Deployed: information only.
+Increment starts: <1st of month after the SOW acknowledgement date> | pending until that date exists (never the registration date). Deployed: information only.
