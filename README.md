@@ -25,6 +25,7 @@ Run `/debug` anytime something breaks. Run a bare `/scope` anytime to see where 
 | `document` | Writes the PR text, changelog, release note, or postmortem from the real diff. |
 | `sync` | Keeps AGENTS.md, the scope, and spec statuses current after a change. |
 | `debug` | Finds and fixes the root cause of a bug, then hands a regression test to `/test`. |
+| `price` | Optional billing step after `/document`, hub only: audits a finished feature from the commit history and proposes its fee. |
 
 Hardening (systems level failure mode analysis) is temporarily removed and will return as a system design specialization.
 

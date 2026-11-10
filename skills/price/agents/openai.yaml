@@ -1,0 +1,7 @@
+# OpenAI Codex adapter. This file supplies the interface metadata Codex shows in
+# its agent picker. The skill's actual instructions live in ../SKILL.md, which the
+# Agent Skills client installs alongside this file and loads when the skill runs.
+interface:
+  display_name: "Price"
+  short_description: "Audit a feature and propose its fee"
+  default_prompt: "Run the price skill: read its SKILL.md, then audit this finished feature from the commit history and propose a fee, or record the owner's approval."

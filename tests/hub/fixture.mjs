@@ -293,3 +293,88 @@ export function makeFeatureBranches(api, web) {
     commitAll(dir, 'feat: add trip count');
   }
 }
+
+// /price fixture: five api commits with known AUTHOR dates and later COMMITTER dates
+// (the push dates), plus a docs/billing folder in the hub.
+// Sessions by author date (gap over 3 hours splits): 2026-10-01 09:00, 09:30, 10:00
+// is one session (60 min + 30 = 1.5 h); 15:00, 15:30 is another (30 + 30 = 1.0 h).
+// Measured hours 2.5. At feature rate 60: effort fee 150.00. Speed factor 2.0 (not
+// equal to the hours, on purpose) gives solo hours 5.0, at contract rate 25: solo fee 125.00.
+const PRICE_COMMITS = [
+  ['2026-10-01T09:00:00', 'feat: trip count query (ledger 6)'],
+  ['2026-10-01T09:30:00', 'feat: trip count route (ledger 6)'],
+  ['2026-10-01T10:00:00', 'test: trip count (ledger 6)'],
+  ['2026-10-01T15:00:00', 'fix: trip count excludes cancelled (ledger 6)'],
+  ['2026-10-01T15:30:00', 'docs: trip count notes (ledger 6)'],
+];
+
+// Row 11 (Navigation, In progress) evidence: two commits on 2026-10-05, a different day
+// and different files from row 6's five, so row 6 stays 2.5 measured hours.
+const NAV_COMMITS = [
+  ['2026-10-05T09:00:00', 'feat: navigation route model'],
+  ['2026-10-05T09:20:00', 'feat: navigation turn list'],
+];
+
+export function makePriceFixture(hub, api) {
+  const push = '2027-01-20T12:00:00';
+  const commit = ([author, msg], file, text) => {
+    write(join(api, file), text);
+    git(api, 'add', '-A');
+    execFileSync('git', ['-c', 'user.name=fixture', '-c', 'user.email=owner@example.com', 'commit', '-q', '-m', msg],
+      { cwd: api, stdio: 'ignore', env: { ...process.env, GIT_AUTHOR_DATE: author + '+00:00', GIT_COMMITTER_DATE: push + '+00:00' } });
+  };
+  PRICE_COMMITS.forEach((c, i) => commit(c, join('src', `count${i}.js`), `export const step${i} = ${i};\n`));
+  NAV_COMMITS.forEach((c, i) => commit(c, join('src', 'navigation.ts'), `export const navStep = ${i};\n`));
+  write(join(hub, 'docs/billing/README.md'), `
+# Billing
+
+Fixture billing records. Amounts in USD. Nothing is Approved unless the owner writes "approved" with an amount.
+`);
+  write(join(hub, 'docs/billing/rates.md'), `
+# Rates
+
+| From | Contract rate | Feature rate | Speed factor | Status | Note |
+|---|---|---|---|---|---|
+| 15 Sep 2026 | 25.00 | 60.00 | 2.0 | **Active** | Fixture rate. |
+`);
+  write(join(hub, 'docs/billing/ledger.md'), `
+# Feature ledger
+
+Status key: Proposed (suggested, waiting) · Approved (the owner wrote "approved" with an amount) · Waived
+
+## 1. Appendix A baseline
+
+| # | Feature | Valuation | State |
+|---|---|---|---|
+| 1 | Find another driver option | 120.00 | Paid |
+| 2 | Wait fee and multi stop timer | 200.00 | Paid |
+| 3 | Taxi driver flow | 500.00 | Paid |
+| 4 | Forward dispatch and ride queuing | 650.00 | Paid |
+| 5 | Driver shift scheduling | 700.00 | Waived, not built |
+
+## 2. Completed features, not yet paid
+
+| # | Feature | Repos | Proposed price | Approved | Deployed | Warranty ends | Increment starts |
+|---|---|---|---|---|---|---|---|
+| 6 | Trip count | api | **100.00** | Pending | to confirm | | |
+
+## 3. In progress
+
+| # | Feature | Repos | Proposed price | Approved | Deployed | Warranty ends | Increment starts |
+|---|---|---|---|---|---|---|---|
+| 11 | Navigation | api | In progress | Pending | | | |
+`);
+  write(join(hub, 'docs/billing/retainer-schedule.md'), `
+# Retainer schedule
+
+The increment is 15% of the approved fee and starts on the 1st of the month after the 14 day warranty ends. Term ends 31 Mar 2027.
+
+| Month | Baseline | Approved increments | Fee | Preview if approved |
+|---|---|---|---|---|
+| Dec 2026 | 1,300.00 | 0.00 | 1,300.00 | |
+| Jan 2027 | 1,300.00 | 0.00 | 1,300.00 | |
+| Feb 2027 | 1,300.00 | 0.00 | 1,300.00 | |
+| Mar 2027 | 1,300.00 | 0.00 | 1,300.00 | |
+`);
+  commitAll(hub, 'billing fixture');
+}
