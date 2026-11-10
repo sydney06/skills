@@ -125,6 +125,21 @@ const rowCells = (text, rowRe) => {
   const row = cells(ls[i]);
   return Object.fromEntries(cells(ls[h]).map((c, k) => [c, row[k] ?? '']));
 };
+// Cell count of each line (header, separator, rows) in the table holding the first row matching `rowRe`.
+const tableCellCounts = (text, rowRe) => {
+  const ls = text.replace(/\r\n/g, '\n').split('\n');
+  const i = ls.findIndex((l) => l.startsWith('|') && rowRe.test(l));
+  if (i < 0) return [];
+  let h = i; while (h > 0 && ls[h - 1].startsWith('|')) h--;
+  let e = i; while (e + 1 < ls.length && ls[e + 1].startsWith('|')) e++;
+  return ls.slice(h, e + 1).map((l) => l.trim().replace(/^\||\|$/g, '').split('|').length);
+};
+// The legacy table (fixture: 10 columns) after `sow 7 register` adds SOW no. and SOW status: 12 cells in
+// the header, the separator and rows 6, 7, 8, i.e. [12, 12, 12, 12, 12]; ack adds no column, so the same.
+const legacyTableAligned = (f, ok) => {
+  const n = tableCellCounts(ledgerOf(f), LINE7);
+  ok(n.length === 5 && n.every((c) => c === 12), `legacy table: header, separator and rows 6, 7, 8 each have 12 cells (${n.join(', ') || 'no table'})`);
+};
 // Cells other than SOW status and SOW acknowledged that differ between two rowCells results.
 const otherCellsChanged = (before, after) => [...new Set([...Object.keys(before), ...Object.keys(after)])]
   .filter((c) => !['SOW status', 'SOW acknowledged'].includes(c) && (before[c] ?? '') !== (after[c] ?? ''));
@@ -543,6 +558,7 @@ const SCENARIOS = {
           const ledger = ledgerOf(f);
           ok(/SOW-002/.test(tableCell(ledger, LINE7, 'SOW no.') ?? ''), 'ledger line 7 SOW no. SOW-002');
           ok(dates(tableCell(ledger, LINE7, 'SOW acknowledged') ?? '').length === 0, 'line 7 SOW acknowledged still empty before the ack');
+          legacyTableAligned(f, ok);
         },
       },
       {
@@ -551,6 +567,7 @@ const SCENARIOS = {
         check(f, run, ok) {
           const ledger = ledgerOf(f);
           const after = rowCells(ledger, LINE7);
+          legacyTableAligned(f, ok);
           ok(!('State' in after) && !('State' in f.line7Before), `line 7 (legacy) has no State cell before or after the ack (${after.State ?? 'none'})`);
           const changed = otherCellsChanged(f.line7Before, after);
           ok(changed.length === 0, `ack wrote only SOW status and SOW acknowledged on line 7 (${changed.join(', ') || 'no other cell changed'})`);
