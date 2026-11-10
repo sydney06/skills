@@ -14,7 +14,7 @@ import { join, dirname, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { buildFixture, installSkills, addGatePrefs, makeUncommittedChanges, makeFeatureBranches, makePriceFixture, makeLifecycleFixture, git } from './fixture.mjs';
+import { buildFixture, installSkills, addGatePrefs, makeUncommittedChanges, makeFeatureBranches, makePriceFixture, makeLifecycleFixture, makeLegacySowFixture, git } from './fixture.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -86,6 +86,21 @@ const readMode = (run, mode) => run.tools.some((t) =>
 const section = (text, re) => text.split(/^## /m).find((s) => re.test(s)) ?? '';
 const readIf = (path) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
 const LINE12 = /^\|\s*12\s*\|/;
+const LINE7 = /^\|\s*7\s*\|/;
+const LINE8 = /^\|\s*8\s*\|/;
+// Every date in `s` as YYYY-MM-DD: 2026-11-20, 20 Nov 2026, 20 November 2026, Nov 20, 2026, 1st Dec 2026.
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+const iso = (y, m, d) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+const dates = (s) => [
+  ...[...s.matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b/g)].map(([, y, m, d]) => iso(y, +m, +d)),
+  ...[...s.matchAll(/\b(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3})[a-z]*\.?,?\s+(\d{4})\b/g)]
+    .filter(([, , mo]) => MONTHS.includes(mo.toLowerCase())).map(([, d, mo, y]) => iso(y, MONTHS.indexOf(mo.toLowerCase()) + 1, +d)),
+  ...[...s.matchAll(/\b([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\b/g)]
+    .filter(([, mo]) => MONTHS.includes(mo.toLowerCase())).map(([, mo, d, y]) => iso(y, MONTHS.indexOf(mo.toLowerCase()) + 1, +d)),
+];
+// The 1st of the month after an ISO date: the legacy increment start.
+const firstOfNextMonth = (d) => { const [y, m] = d.split('-').map(Number); return m === 12 ? iso(y + 1, 1, 1) : iso(y, m + 1, 1); };
+const sowFile = (f, re) => { const n = sowFiles(f).find((x) => re.test(x)); return n ? readFileSync(join(f.hub, 'docs/billing/sows', n), 'utf8') : ''; };
 const ledgerOf = (f) => readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
 const scopeUntouched = (f) => git(f.hub, 'status', '--porcelain', 'docs/scope', 'docs/specs') === '';
 const noPush = (run) => !bashCmds(run).some((c) => /git\s+(-C\s+\S+\s+)?push\b|gh\s+pr\s+(create|edit|merge)\b/.test(c));
@@ -400,9 +415,9 @@ const SCENARIOS = {
     },
   },
   sow: {
-    about: '/price sow: register makes SOW-001 as Draft; ack without a quote and a raise above the ceiling are refused; ack with date, channel and quote acknowledges; nothing marked signed',
+    about: '/price sow: register makes SOW-001 as Draft; ack without a quote and a raise above the ceiling are refused; ack with date, channel and quote acknowledges; nothing marked signed; a legacy Retroactive SOW ack fills SOW signed with the ack date, other lines keep it empty',
     state: 'hub',
-    prepare(f) { makeLifecycleFixture(f.hub, f.api, 'sow'); },
+    prepare(f) { makeLifecycleFixture(f.hub, f.api, 'sow'); f.retainerBefore = approvedCols(f.hub); },
     prompt: '/price sow 12 register',
     check(f, run, ok) {
       ok(readHub(run), 'read price/hub.md');
@@ -448,7 +463,40 @@ const SCENARIOS = {
           ok(numsAfter(sow, /Current fee/i).some(near(410)), 'Current fee still 410.00 (the raise stays pending)');
           ok(!/\bsigned\b/i.test(sowStatus(sow)) && !/\bsigned\b/i.test(ledger.split('\n').find((l) => LINE12.test(l)) ?? ''), 'nothing marked signed');
           ok(!/\bApproved\b/.test(ledger.split('\n').find((l) => LINE12.test(l)) ?? ''), 'line 12 never Approved');
+          ok(!(tableCell(ledger, LINE12, 'SOW signed') ?? ''), 'line 12 (measured) gets no SOW signed date');
           ok(scopeUntouched(f), 'no scope row or spec changed');
+        },
+      },
+      {
+        // Legacy: arithmetic in fixture.mjs above makeLegacySowFixture.
+        prompt: '/price sow 7 register',
+        prepare(f) { makeLegacySowFixture(f.hub); },
+        check(f, run, ok) {
+          const sow = sowFile(f, /^SOW-002-/);
+          ok(sowFiles(f).length === 2 && !!sow, `SOW-002 registered next to SOW-001 (${sowFiles(f).join(', ')})`);
+          ok(/Retroactive SOW[^\n]*\byes\b/i.test(sow) && !/yes\s*\|\s*no/i.test(sow), 'SOW-002 is a Retroactive SOW (yes, not the template choice)');
+          ok(/Draft/.test(sowStatus(sow)) && numsAfter(sow, /Estimated fee/i).some(near(300)), 'SOW-002 Draft with the audited fee 300.00 as its estimate');
+          const ledger = ledgerOf(f);
+          ok(/SOW-002/.test(tableCell(ledger, LINE7, 'SOW no.') ?? ''), 'ledger line 7 SOW no. SOW-002');
+          ok(dates(tableCell(ledger, LINE7, 'SOW signed') ?? '').length === 0, 'line 7 SOW signed still empty before the ack');
+        },
+      },
+      {
+        prompt: '/price sow 7 ack 2026-11-20 email "Confirmed, please bill the ticket escalation work"',
+        check(f, run, ok) {
+          const ledger = ledgerOf(f);
+          const signed = dates(tableCell(ledger, LINE7, 'SOW signed') ?? '');
+          ok(signed.length === 1 && signed[0] === '2026-11-20', `line 7 SOW signed holds the ack date 2026-11-20 (${signed.join(', ') || 'empty'})`);
+          ok(/Acknowledged/.test(sowStatus(sowFile(f, /^SOW-002-/))) && /Acknowledged/.test(tableCell(ledger, LINE7, 'SOW status') ?? ''), 'SOW-002 and ledger line 7 Acknowledged');
+          // 2026-11-20 → month 11 + 1 = 12 → 2026-12-01.
+          const start = firstOfNextMonth('2026-11-20');
+          ok(start === '2026-12-01' && dates(run.text).includes(start), `report gives the increment start ${start} (1st of the month after 2026-11-20)`);
+          ok(dates(tableCell(ledger, LINE8, 'SOW signed') ?? '').length === 0, 'line 8 (legacy, never acknowledged) SOW signed still empty');
+          ok(!(tableCell(ledger, LINE12, 'SOW signed') ?? ''), 'line 12 (measured) SOW signed untouched');
+          ok(/Acknowledged/.test(sowStatus(sowFile(f, /^SOW-001-/))) && numsAfter(sowFile(f, /^SOW-001-/), /Current fee/i).some(near(410)), 'SOW-001 unchanged (Acknowledged, 410.00)');
+          ok(!/\bApproved\b/.test((ledger.split('\n').find((l) => LINE7.test(l)) ?? '').replace(/Approved \(/g, '')) && /Pending/.test(tableCell(ledger, LINE7, 'Approved') ?? ''), 'line 7 never Approved, Approved cell still Pending');
+          ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged (approve applies the increment)');
+          ok(noPush(run), 'no git push, no gh pr');
         },
       },
     ],

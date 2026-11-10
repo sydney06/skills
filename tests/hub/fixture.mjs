@@ -541,3 +541,21 @@ Ledger line 12 · status **Estimated**. Size score 8.17, solo hours 16.34. Estim
   }
   commitAll(hub, `lifecycle fixture (${stage})`);
 }
+
+// Legacy SOW (spec sections 14 and 15, Agreement change 8): line 7 gets its legacy audit (fee 300.00), so
+// `sow 7 register` makes a Retroactive SOW; line 8 is a second legacy line that is never acknowledged.
+// Acknowledged 2026-11-20 → the increment starts on the 1st of the month after: Nov 2026 + 1 = Dec 2026,
+// so 2026-12-01 (not 2026-11-01, the month of the ack, and not 2026-11-20 itself).
+export function makeLegacySowFixture(hub) {
+  const ledgerPath = join(hub, 'docs/billing/ledger.md');
+  write(ledgerPath, readFileSync(ledgerPath, 'utf8').replace(
+    '| 7 | Support ticket escalation | api | legacy (size based) | **300.00** | Pending | to confirm | | | |',
+    '| 7 | Support ticket escalation | api | legacy (size based) | Proposed **300.00** · n/a (legacy: contract rate) · [audit](audits/support-ticket-escalation.md) | Pending | to confirm | | | |\n' +
+    '| 8 | Driver ratings | api | legacy (size based) | Proposed **200.00** · n/a (legacy: contract rate) | Pending | to confirm | | | |'));
+  write(join(hub, 'docs/billing/audits/support-ticket-escalation.md'), `
+# Audit: Support ticket escalation
+
+Ledger line 7 · Basis: legacy, size based · status **Proposed**. Size score 7.0, solo hours 14.0. Proposed fee **300.00** (owner's figure), low 280.00, high 420.00. Increment start: pending the SOW acknowledgement.
+`);
+  commitAll(hub, 'legacy sow fixture');
+}
