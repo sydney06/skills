@@ -338,9 +338,9 @@ const SCENARIOS = {
           const row = ledger.split('\n').find((l) => /^\|\s*7\s*\|/.test(l)) ?? '';
           ok(/Proposed/i.test(row) && nums(row).some(near(350)) &&/\bPending\b/.test(row) && !/\bApproved\b/.test(row.replace(/Approved \(/g, '')), 'ledger row 7 Proposed at 350.00, Approved still Pending');
           ok(/n\/a \(legacy: contract rate\)/.test(row), 'ledger row 7 rate and speed factor cell says "n/a (legacy: contract rate)"');
-          const head = ledger.split('\n').find((l) => /\|\s*SOW signed\s*\|/.test(l)) ?? '';
-          const col = head.split('|').findIndex((c) => c.trim() === 'SOW signed');
-          ok(col > 0 && row.split('|')[col]?.trim() === '', 'ledger row 7 SOW signed cell stays empty (no SOW date given)');
+          const head = ledger.split('\n').find((l) => /\|\s*SOW acknowledged\s*\|/.test(l)) ?? '';
+          const col = head.split('|').findIndex((c) => c.trim() === 'SOW acknowledged');
+          ok(col > 0 && row.split('|')[col]?.trim() === '', 'ledger row 7 SOW acknowledged cell stays empty (no SOW date given)');
           ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged after the legacy audit');
           ok(!/^\d/.test(seen.match(/Increment starts:?\s*([^\n|]*)/i)?.[1]?.trim() ?? ''), 'increment start not dated without a SOW date');
         },
@@ -420,7 +420,7 @@ const SCENARIOS = {
     },
   },
   sow: {
-    about: '/price sow: register makes SOW-001 as Draft; ack without a quote and a raise above the ceiling are refused; ack with date, channel and quote acknowledges; nothing marked signed; a legacy Retroactive SOW ack fills SOW signed with the ack date, other lines keep it empty',
+    about: '/price sow: register makes SOW-001 as Draft; ack without a quote and a raise above the ceiling are refused; ack with date, channel and quote acknowledges; nothing marked signed; a legacy Retroactive SOW ack fills SOW acknowledged with the ack date, other lines keep it empty',
     state: 'hub',
     prepare(f) { makeLifecycleFixture(f.hub, f.api, 'sow'); f.retainerBefore = approvedCols(f.hub); },
     prompt: '/price sow 12 register',
@@ -468,7 +468,7 @@ const SCENARIOS = {
           ok(numsAfter(sow, /Current fee/i).some(near(410)), 'Current fee still 410.00 (the raise stays pending)');
           ok(!/\bsigned\b/i.test(sowStatus(sow)) && !/\bsigned\b/i.test(ledger.split('\n').find((l) => LINE12.test(l)) ?? ''), 'nothing marked signed');
           ok(!/\bApproved\b/.test(ledger.split('\n').find((l) => LINE12.test(l)) ?? ''), 'line 12 never Approved');
-          ok(!(tableCell(ledger, LINE12, 'SOW signed') ?? ''), 'line 12 (measured) gets no SOW signed date');
+          ok(!(tableCell(ledger, LINE12, 'SOW acknowledged') ?? ''), 'line 12 (measured) gets no SOW acknowledged date');
           ok(scopeUntouched(f), 'no scope row or spec changed');
         },
       },
@@ -483,21 +483,21 @@ const SCENARIOS = {
           ok(/Draft/.test(sowStatus(sow)) && numsAfter(sow, /Estimated fee/i).some(near(300)), 'SOW-002 Draft with the audited fee 300.00 as its estimate');
           const ledger = ledgerOf(f);
           ok(/SOW-002/.test(tableCell(ledger, LINE7, 'SOW no.') ?? ''), 'ledger line 7 SOW no. SOW-002');
-          ok(dates(tableCell(ledger, LINE7, 'SOW signed') ?? '').length === 0, 'line 7 SOW signed still empty before the ack');
+          ok(dates(tableCell(ledger, LINE7, 'SOW acknowledged') ?? '').length === 0, 'line 7 SOW acknowledged still empty before the ack');
         },
       },
       {
         prompt: '/price sow 7 ack 2026-11-20 email "Confirmed, please bill the ticket escalation work"',
         check(f, run, ok) {
           const ledger = ledgerOf(f);
-          const signed = dates(tableCell(ledger, LINE7, 'SOW signed') ?? '');
-          ok(signed.length === 1 && signed[0] === '2026-11-20', `line 7 SOW signed holds the ack date 2026-11-20 (${signed.join(', ') || 'empty'})`);
+          const signed = dates(tableCell(ledger, LINE7, 'SOW acknowledged') ?? '');
+          ok(signed.length === 1 && signed[0] === '2026-11-20', `line 7 SOW acknowledged holds the ack date 2026-11-20 (${signed.join(', ') || 'empty'})`);
           ok(/Acknowledged/.test(sowStatus(sowFile(f, /^SOW-002-/))) && /Acknowledged/.test(tableCell(ledger, LINE7, 'SOW status') ?? ''), 'SOW-002 and ledger line 7 Acknowledged');
           // 2026-11-20 → month 11 + 1 = 12 → 2026-12-01.
           const start = firstOfNextMonth('2026-11-20');
           ok(start === '2026-12-01' && dates(run.text).includes(start), `report gives the increment start ${start} (1st of the month after 2026-11-20)`);
-          ok(dates(tableCell(ledger, LINE8, 'SOW signed') ?? '').length === 0, 'line 8 (legacy, never acknowledged) SOW signed still empty');
-          ok(!(tableCell(ledger, LINE12, 'SOW signed') ?? ''), 'line 12 (measured) SOW signed untouched');
+          ok(dates(tableCell(ledger, LINE8, 'SOW acknowledged') ?? '').length === 0, 'line 8 (legacy, never acknowledged) SOW acknowledged still empty');
+          ok(!(tableCell(ledger, LINE12, 'SOW acknowledged') ?? ''), 'line 12 (measured) SOW acknowledged untouched');
           ok(/Acknowledged/.test(sowStatus(sowFile(f, /^SOW-001-/))) && numsAfter(sowFile(f, /^SOW-001-/), /Current fee/i).some(near(410)), 'SOW-001 unchanged (Acknowledged, 410.00)');
           ok(!/\bApproved\b/.test((ledger.split('\n').find((l) => LINE7.test(l)) ?? '').replace(/Approved \(/g, '')) && /Pending/.test(tableCell(ledger, LINE7, 'Approved') ?? ''), 'line 7 never Approved, Approved cell still Pending');
           ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged (approve applies the increment)');

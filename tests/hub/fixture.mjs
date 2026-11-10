@@ -400,14 +400,14 @@ Status key: Proposed (suggested, waiting) · Approved (the owner wrote "approved
 
 ## 2. Completed features, not yet paid
 
-| # | Feature | Repos | Basis | Proposed price | Approved | Deployed | Warranty ends | SOW signed | Increment starts |
+| # | Feature | Repos | Basis | Proposed price | Approved | Deployed | Warranty ends | SOW acknowledged | Increment starts |
 |---|---|---|---|---|---|---|---|---|---|
 | 6 | Trip count | api | measured | **100.00** | Pending | to confirm | | | |
 | 7 | Support ticket escalation | api | legacy (size based) | **300.00** | Pending | to confirm | | | |
 
 ## 3. In progress
 
-| # | Feature | Repos | Basis | Proposed price | Approved | Deployed | Warranty ends | SOW signed | Increment starts |
+| # | Feature | Repos | Basis | Proposed price | Approved | Deployed | Warranty ends | SOW acknowledged | Increment starts |
 |---|---|---|---|---|---|---|---|---|---|
 | 11 | Navigation | api | measured | In progress | Pending | | | | |
 `);
