@@ -64,6 +64,10 @@ const ranGitIn = (run, repo) => bashCmds(run).some((c) => {
 const approvedCols = (hub) => readFileSync(join(hub, 'docs/billing/retainer-schedule.md'), 'utf8').split('\n')
   .filter((l) => /^\|\s*(Month|[A-Z][a-z]{2} \d{4})\s*\|/.test(l))
   .map((l) => l.split('|').slice(1, 5).map((c) => c.trim()).join('|')).join('\n');
+// True when a line of `text` says Approved, ignoring lines that negate it or tell the owner to run /price approve.
+const saysApproved = (text) => text.split('\n')
+  .filter((l) => !/\b(not|never|isn't|is not|until)\b[^.]*\bapproved\b/i.test(l) && !/\/price approve\b/i.test(l))
+  .some((l) => /\bApproved\b/.test(l));
 // Numbers in `s` with "N min" read as hours, skipping times like 12:00, so 2.5 = 2.50 and 150 = 150.00.
 const nums = (s) => [...s.matchAll(/(?<![\d.:])(\d+(?:\.\d+)?)(?![\d:])(\s*min\b)?/gi)].map((m) => (m[2] ? m[1] / 60 : +m[1]));
 const near = (v) => (n) => Math.abs(n - v) < 0.01;
@@ -281,7 +285,8 @@ const SCENARIOS = {
       ok(/reference/i.test(seen), 'reference fee printed');
       const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
       const row = ledger.split('\n').find((l) => /^\|\s*6\s*\|/.test(l)) ?? '';
-      ok(!/\bApproved\b/.test(audit), 'audit file never contains the word Approved');
+      ok(!saysApproved('Not Approved: that needs /price approve <amount>') && saysApproved('Status: Approved'), 'Approved helper ignores a negating line (Not Approved: that needs /price approve <amount>) and catches Status: Approved');
+      ok(!saysApproved(audit), 'audit file never says Approved (negating lines ignored)');
       ok(/Proposed/i.test(row), 'ledger row 6 says Proposed');
       ok(!/\bApproved\b/.test(row.replace(/Approved \(/g, '')), 'ledger row 6 never says Approved');
       ok(/\bPending\b/.test(row), 'Approved column stays Pending');
@@ -356,7 +361,7 @@ const SCENARIOS = {
           ok(numsAfter(audit, /\bLow\b/).some(near(280)) && numsAfter(audit, /\bHigh\b/).some(near(420)), 'low 280.00 (7.0 x 1.6 x 25) and high 420.00 (7.0 x 2.4 x 25), already multiples of 5 so nearest 5 keeps them');
           ok(/Confidence[^\n]*\bLow\b/i.test(audit), 'confidence Low (two anchors, under three)');
           ok(/\bSOW\b/.test(run.text) && /\bSOW\b[^\n]*pending|pending[^\n]*\bSOW\b/i.test(audit), 'asks for the SOW date and leaves the increment pending');
-          ok(!/\bApproved\b/.test(audit), 'legacy audit never contains the word Approved');
+          ok(!saysApproved(audit), 'legacy audit never says Approved (negating lines ignored)');
           const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
           const row = ledger.split('\n').find((l) => /^\|\s*7\s*\|/.test(l)) ?? '';
           ok(/Proposed/i.test(row) && nums(row).some(near(350)) &&/\bPending\b/.test(row) && !/\bApproved\b/.test(row.replace(/Approved \(/g, '')), 'ledger row 7 Proposed at 350.00, Approved still Pending');
