@@ -1,7 +1,7 @@
 // Builds throwaway fixtures for the hub mode scenarios. Everything lives under
 // one root (default: a fresh temp dir). Each fixture repo gets a local bare repo
 // as `origin`, so freshness checks work offline and nothing can reach a real remote.
-import { mkdirSync, writeFileSync, cpSync, existsSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, cpSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -447,4 +447,97 @@ The increment is 15% of the approved fee and starts on the 1st of the month afte
 | Mar 2027 | 1,300.00 | 0.00 | 1,300.00 | |
 `);
   commitAll(hub, 'billing fixture');
+}
+
+// Lifecycle fixture (spec section 15) on top of the /price fixture: rates gain a Ceiling of 20%, the
+// _root scope gains row 2 (a plain bug: Maintenance) and row 3 (a new capability: New Feature) with
+// spec 0002, whose size plan fixes every signal so the quote is exact. Weights as in size-weights.md:
+//   2 routes 2.0 + 1 migration 1.5 + 1 job 1.5 + 1 email 0.5 + 1 screen 1.0 + 2 test files 0.5
+//   + 234 lines (234 / 100 x 0.5) 1.17 = score 8.17
+// Calibration from the anchors above: median 2.0 h per point, lowest 1.6, highest 2.4.
+//   solo hours 8.17 x 2.0 = 16.34; estimate 16.34 x 25 = 408.50, nearest 5: 410.00
+//   ceiling 410.00 x 1.20 = 492.00, nearest 5: 490.00
+//   retainer 15%: 410.00 x 0.15 = 61.50 a month at the estimate, 490.00 x 0.15 = 73.50 at the ceiling
+//   (low 8.17 x 1.6 x 25 = 326.80 -> 325.00, high 8.17 x 2.4 x 25 = 490.20 -> 490.00, the same as the
+//   ceiling only because 2.4 / 2.0 = 1.20)
+// stage: 'classify' (no line 12 yet) | 'quote' (line 12 Planned) | 'sow' (line 12 Estimated at 410.00 / 490.00)
+export function makeLifecycleFixture(hub, api, stage) {
+  makePriceFixture(hub, api);
+  write(join(hub, 'docs/billing/rates.md'), `
+# Rates
+
+| From | Contract rate | Feature rate | Speed factor | Ceiling | Status | Note |
+|---|---|---|---|---|---|---|
+| 15 Sep 2026 | 25.00 | 60.00 | 2.0 | 20% | **Active** | Fixture rate. |
+`);
+  const scopePath = join(hub, 'docs/scope/_root/scope.md');
+  const scope = HUB_FILES['docs/scope/_root/scope.md']
+    .replace('| 1 | Trip status label | Slice 1 | in-progress |',
+      '| 1 | Trip status label | Slice 1 | in-progress |\n| 2 | Duplicate trips fix | Slice 2 | planned |\n| 3 | Trip history export | Slice 2 | planned |')
+    + `
+## Slice 2
+
+### 2. Duplicate trips fix · planned
+GET /trips, already deployed, lists a trip twice when it was reassigned. Its documented behavior (the trips endpoint, scope row A of api) is one entry per trip. Touches: api
+**Done when:** GET /trips returns each trip once, reassigned or not.
+
+### 3. Trip history export · planned
+New: a rider can download their whole trip history as a CSV file. The api builds the file in a background job and emails the rider a download link. Touches: api, web
+**Done when:** a rider asks for an export on the new web Export page, the file is built in the background, and the rider gets an email with the link.
+Spec [0002](../../specs/_root/0002-trip-history-export.md)
+`;
+  write(scopePath, scope);
+  write(join(hub, 'docs/specs/_root/0002-trip-history-export.md'), `
+# 0002. Trip history export
+
+**Date**: 2026-11-09
+**Status**: Proposed
+
+## Summary
+
+Riders can export their trip history as CSV. The api queues an export job, builds the file, and emails a link; the web app gets an Export page.
+
+## Size plan (what the build adds)
+
+| Repo | Signal | Count | Items |
+|---|---|---|---|
+| api | Route added | 2 | POST /trips/export, GET /trips/export/:id |
+| api | Migration | 1 | ExportJob table |
+| api | Background job | 1 | build the CSV |
+| api | Email template | 1 | export ready |
+| web | Screen | 1 | Export page |
+| api | Test file added | 2 | export route test, export job test |
+| api, web | Hand written source lines | 234 | estimate from the build plan |
+
+## Build plan
+
+1. [api] ExportJob migration, the two routes, the job and the email
+2. [web] Export page that starts an export and shows its status
+`);
+  if (stage !== 'classify') {
+    const [state, est, ceil] = stage === 'quote' ? ['Planned', '', ''] : ['Estimated', '410.00', '490.00'];
+    const ledgerPath = join(hub, 'docs/billing/ledger.md');
+    write(ledgerPath, readFileSync(ledgerPath, 'utf8') + `
+## 4. New features
+
+| # | Feature | Repos | Basis | State | Estimate | Ceiling | SOW no. | SOW status | Proposed price | Approved | Deployed | Warranty ends | Increment starts |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 12 | Trip history export (scope row 3) | api, web | measured | ${state} | ${est} | ${ceil} | | | | Pending | | | |
+`);
+    write(join(hub, 'docs/billing/classification.md'), `
+# Classification
+
+| Date | Row or request | Answer | Reasons | Decided by |
+|---|---|---|---|---|
+| 2026-11-10 | Row 3: Trip history export | New Feature | Adds a capability (1.3): CSV export, a job and an email | the owner, in chat |
+`);
+  }
+  if (stage === 'sow') {
+    write(join(hub, 'docs/billing/audits/trip-history-export-estimate.md'), `
+# Estimate: Trip history export
+
+Ledger line 12 · status **Estimated**. Size score 8.17, solo hours 16.34. Estimate **410.00**, ceiling **490.00** (20%).
+`);
+  }
+  commitAll(hub, `lifecycle fixture (${stage})`);
 }

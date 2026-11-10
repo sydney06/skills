@@ -14,7 +14,7 @@ import { join, dirname, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { buildFixture, installSkills, addGatePrefs, makeUncommittedChanges, makeFeatureBranches, makePriceFixture, git } from './fixture.mjs';
+import { buildFixture, installSkills, addGatePrefs, makeUncommittedChanges, makeFeatureBranches, makePriceFixture, makeLifecycleFixture, git } from './fixture.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -40,7 +40,10 @@ function runAgent(cwd, prompt, transcriptPath) {
   const tools = events.filter((e) => e.type === 'assistant')
     .flatMap((e) => e.message?.content ?? []).filter((c) => c.type === 'tool_use');
   const result = events.find((e) => e.type === 'result') ?? {};
-  return { tools, text: result.result ?? '', cost: result.total_cost_usd ?? 0, error: res.error ?? (res.status ? res.stderr : null) };
+  // Every assistant text block, so a question the agent asked (and answered itself, unattended) is visible.
+  const said = events.filter((e) => e.type === 'assistant').flatMap((e) => e.message?.content ?? [])
+    .filter((c) => c.type === 'text').map((c) => c.text).concat(result.result ?? '').join('\n');
+  return { tools, said, text: result.result ?? '', cost: result.total_cost_usd ?? 0, error: res.error ?? (res.status ? res.stderr : null) };
 }
 
 // ---- helpers for assertions ------------------------------------------------
@@ -66,6 +69,29 @@ const nums = (s) => [...s.matchAll(/(?<![\d.:])(\d+(?:\.\d+)?)(?![\d:])(\s*min\b
 const near = (v) => (n) => Math.abs(n - v) < 0.01;
 // Numbers after `label` on every line that has it.
 const numsAfter = (text, label) => text.split('\n').flatMap((l) => { const i = l.search(label); return i < 0 ? [] : nums(l.slice(i)); });
+// Cell `col` of the first table line matching `rowRe`, read against the header of the table it sits in.
+const tableCell = (text, rowRe, col) => {
+  const ls = text.split('\n');
+  const i = ls.findIndex((l) => l.startsWith('|') && rowRe.test(l));
+  if (i < 0) return undefined;
+  let h = i;
+  while (h > 0 && ls[h - 1].startsWith('|')) h--;
+  const j = ls[h].split('|').map((c) => c.trim()).findIndex((c) => c === col);
+  return j < 0 ? undefined : ls[i].split('|')[j]?.trim();
+};
+// True when the agent read modes/<mode>.md, by the Read tool or a shell command.
+const readMode = (run, mode) => run.tools.some((t) =>
+  (t.name === 'Read' && new RegExp(`modes[\\\\/]${mode}\\.md$`).test(t.input?.file_path ?? '')) ||
+  (['Bash', 'PowerShell'].includes(t.name) && new RegExp(`modes[\\\\/]${mode}\\.md`).test(t.input?.command ?? '')));
+const section = (text, re) => text.split(/^## /m).find((s) => re.test(s)) ?? '';
+const readIf = (path) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
+const LINE12 = /^\|\s*12\s*\|/;
+const ledgerOf = (f) => readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
+const scopeUntouched = (f) => git(f.hub, 'status', '--porcelain', 'docs/scope', 'docs/specs') === '';
+const noPush = (run) => !bashCmds(run).some((c) => /git\s+(-C\s+\S+\s+)?push\b|gh\s+pr\s+(create|edit|merge)\b/.test(c));
+const sowFiles = (f) => { const d = join(f.hub, 'docs/billing/sows'); return existsSync(d) ? readdirSync(d) : []; };
+const sowText = (f) => { const [n] = sowFiles(f); return n ? readFileSync(join(f.hub, 'docs/billing/sows', n), 'utf8') : ''; };
+const sowStatus = (sow) => sow.match(/^Status:([^\n·]*)/m)?.[1] ?? '';
 const branch = (dir) => git(dir, 'rev-parse', '--abbrev-ref', 'HEAD');
 const sha = (dir, ref) => git(dir, 'rev-parse', ref);
 const listFiles = (dir, skip = []) => readdirSync(dir, { recursive: true, withFileTypes: true })
@@ -297,6 +323,132 @@ const SCENARIOS = {
           ok(col > 0 && row.split('|')[col]?.trim() === '', 'ledger row 7 SOW signed cell stays empty (no SOW date given)');
           ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged after the legacy audit');
           ok(!/^\d/.test(seen.match(/Increment starts:?\s*([^\n|]*)/i)?.[1]?.trim() ?? ''), 'increment start not dated without a SOW date');
+        },
+      },
+    ],
+  },
+  // Lifecycle scenarios (spec section 15). Fixture and arithmetic: makeLifecycleFixture in fixture.mjs.
+  classify: {
+    about: '/price classify: a plain bug is Maintenance with no ledger line, a new capability is a New Feature with a Planned line; it asks, records classification.md, edits no scope row',
+    state: 'hub',
+    prepare(f) { makeLifecycleFixture(f.hub, f.api, 'classify'); },
+    prompt: '/price classify row 2',
+    check(f, run, ok) {
+      ok(readHub(run), 'read price/hub.md');
+      ok(readMode(run, 'classify'), 'read modes/classify.md');
+      ok(/New Feature/.test(run.said) && /Maintenance/.test(run.said) && /Needs discussion/.test(run.said) && /recommend/i.test(run.said),
+        'asked with the three options and a recommendation');
+      const cls = readIf(join(f.hub, 'docs/billing/classification.md'));
+      const answer = tableCell(cls, /Duplicate trips|row 2\b/i, 'Answer') ?? '';
+      ok(/Maintenance/.test(answer) && !/New Feature/.test(answer), `classification.md records row 2 as Maintenance (${answer || 'no line'})`);
+      ok(/1\.2|Bug/i.test(tableCell(cls, /Duplicate trips|row 2\b/i, 'Reasons') ?? ''), 'reasons cite the Bug test (1.2)');
+      ok(!ledgerOf(f).split('\n').some((l) => LINE12.test(l)), 'no ledger line for a Maintenance row');
+      ok(scopeUntouched(f), 'no scope row or spec changed');
+      ok(noPush(run), 'no git push, no gh pr');
+    },
+    then: [
+      {
+        prompt: '/price classify row 3',
+        check(f, run, ok) {
+          ok(/New Feature/.test(run.said) && /Maintenance/.test(run.said) && /Needs discussion/.test(run.said), 'asked with the three options');
+          const cls = readIf(join(f.hub, 'docs/billing/classification.md'));
+          const answer = tableCell(cls, /Trip history export|row 3\b/i, 'Answer') ?? '';
+          ok(/New Feature/.test(answer), `classification.md records row 3 as New Feature (${answer || 'no line'})`);
+          ok(/Maintenance/.test(tableCell(cls, /Duplicate trips|row 2\b/i, 'Answer') ?? ''), 'row 2 line kept');
+          const ledger = ledgerOf(f);
+          ok(/measured/i.test(tableCell(ledger, LINE12, 'Basis') ?? '') && /Planned/.test(tableCell(ledger, LINE12, 'State') ?? ''),
+            'ledger line 12 (next free number after 11) with Basis measured and State Planned');
+          ok(!/\bApproved\b/.test(ledger.split('\n').find((l) => LINE12.test(l)) ?? ''), 'line 12 never says Approved');
+          ok(/quote/i.test(run.text), 'recommends /price quote');
+          ok(scopeUntouched(f), 'no scope row or spec changed');
+        },
+      },
+    ],
+  },
+  quote: {
+    about: '/price quote: estimate 410.00, ceiling 490.00 and retainer 61.50 / 73.50 from the plan, calibrated on Appendix A; line 12 Estimated, never Approved',
+    state: 'hub',
+    prepare(f) { makeLifecycleFixture(f.hub, f.api, 'quote'); f.retainerBefore = approvedCols(f.hub); },
+    prompt: '/price quote 12',
+    check(f, run, ok) {
+      ok(readHub(run), 'read price/hub.md');
+      ok(readMode(run, 'quote'), 'read modes/quote.md');
+      const dir = join(f.hub, 'docs/billing/audits');
+      const files = (existsSync(dir) ? readdirSync(dir) : []).filter((n) => /-estimate\.md$/.test(n));
+      ok(files.length === 1, `one estimate file (${files.join(', ') || 'none'})`);
+      const est = files.length ? readFileSync(join(dir, files[0]), 'utf8') : '';
+      ok(numsAfter(est, /Size score/i).some(near(8.17)), 'size score 8.17 (2 routes 2.0 + migration 1.5 + job 1.5 + email 0.5 + screen 1.0 + 2 tests 0.5 + 234 lines 1.17)');
+      ok(est.split('\n').some((l) => nums(l).some(near(4.8)) && nums(l).some(near(2.4))) && numsAfter(est, /median/i).some(near(2)),
+        'calibration on Appendix A: item 1 4.8 h, 2.4 h per point; median 2.0');
+      ok(numsAfter(est, /Solo hours/i).some(near(16.34)), 'solo hours 16.34 (8.17 x 2.0)');
+      ok(numsAfter(est, /Estimate\b/).some(near(410)), 'estimate 410.00 (16.34 x 25 = 408.50, nearest 5)');
+      ok(numsAfter(est, /Ceiling/).some(near(490)) && numsAfter(est, /Ceiling/).some(near(20)), 'ceiling 490.00 (410.00 x 1.20 = 492.00, nearest 5), 20% read from rates.md');
+      const ret = nums(section(est, /^Retainer/i));
+      ok(ret.some(near(61.5)) && ret.some(near(73.5)), 'retainer 61.50 a month (15% of 410.00) and 73.50 (15% of 490.00)');
+      ok(/pending/i.test(section(est, /^Retainer/i)), 'first month pending the deployment date');
+      ok(!/\bApproved\b/.test(est), 'estimate never says Approved');
+      const ledger = ledgerOf(f);
+      const row = ledger.split('\n').find((l) => LINE12.test(l)) ?? '';
+      ok(/Estimated/.test(tableCell(ledger, LINE12, 'State') ?? ''), 'ledger line 12 State Estimated');
+      ok(nums(tableCell(ledger, LINE12, 'Estimate') ?? '').some(near(410)) && nums(tableCell(ledger, LINE12, 'Ceiling') ?? '').some(near(490)), 'ledger Estimate 410.00 and Ceiling 490.00');
+      ok(!/\bApproved\b/.test(row) && /Pending/.test(tableCell(ledger, LINE12, 'Approved') ?? ''), 'line 12 never Approved, Approved cell still Pending');
+      ok(!/Proposed/.test(tableCell(ledger, LINE12, 'Proposed price') ?? ''), 'quote writes no Proposed price');
+      ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged');
+      ok(/\bsow\b/i.test(run.text), 'offers /price sow');
+      ok(scopeUntouched(f), 'no scope row or spec changed');
+      ok(noPush(run), 'no git push, no gh pr');
+    },
+  },
+  sow: {
+    about: '/price sow: register makes SOW-001 as Draft; ack without a quote and a raise above the ceiling are refused; ack with date, channel and quote acknowledges; nothing marked signed',
+    state: 'hub',
+    prepare(f) { makeLifecycleFixture(f.hub, f.api, 'sow'); },
+    prompt: '/price sow 12 register',
+    check(f, run, ok) {
+      ok(readHub(run), 'read price/hub.md');
+      ok(readMode(run, 'sow'), 'read modes/sow.md');
+      const files = sowFiles(f);
+      ok(files.length === 1 && /^SOW-001-[a-z0-9-]+\.md$/.test(files[0]), `one file SOW-001-<slug>.md (${files.join(', ') || 'none'})`);
+      const sow = sowText(f);
+      ok(/Draft/.test(sowStatus(sow)) && !/Sent|Acknowledged|Declined/.test(sowStatus(sow)), `SOW status Draft (${sowStatus(sow).trim() || 'none'})`);
+      ok(numsAfter(sow, /Estimated fee/i).some(near(410)) && numsAfter(sow, /Ceiling/).some(near(490)), 'estimate 410.00 and ceiling 490.00 from the ledger');
+      ok(numsAfter(sow, /Monthly increase/i).some(near(61.5)), 'monthly increase 61.50 (15% of 410.00)');
+      ok(/not reduced because the work was done faster/i.test(sow) && /Client's written reply/i.test(sow), 'change rule printed');
+      ok(/Done when:[^\n]*email/i.test(sow), 'Done when line from scope row 3');
+      ok(/SOW-001/.test(tableCell(ledgerOf(f), LINE12, 'SOW no.') ?? '') && /Draft/.test(tableCell(ledgerOf(f), LINE12, 'SOW status') ?? ''), 'ledger SOW no. SOW-001, SOW status Draft');
+      ok(!/\bsigned\b/i.test(sowStatus(sow)), 'not marked signed');
+      ok(scopeUntouched(f), 'no scope row or spec changed');
+    },
+    then: [
+      {
+        prompt: '/price sow 12 ack 2026-11-12 whatsapp',
+        check(f, run, ok) {
+          ok(/Draft/.test(sowStatus(sowText(f))) && /Draft/.test(tableCell(ledgerOf(f), LINE12, 'SOW status') ?? ''), 'still Draft in the SOW and the ledger');
+          ok(/\b(quote|screenshot)\b/i.test(run.text) && /\b(refus\w*|need\w*|requires?|missing|without|cannot|can't|won't)\b/i.test(run.text), 'ack without a quote is refused and names the missing quote or screenshot');
+        },
+      },
+      {
+        prompt: '/price sow 12 raise 600 "the export also needs a PDF format" 2026-11-12 whatsapp',
+        check(f, run, ok) {
+          const sow = sowText(f);
+          ok(numsAfter(sow, /Current fee/i).some(near(410)) && !numsAfter(sow, /Current fee/i).some(near(600)), 'Current fee still 410.00, not 600.00');
+          ok(nums(tableCell(ledgerOf(f), LINE12, 'Estimate') ?? '').some(near(410)), 'ledger Estimate still 410.00');
+          ok(/ceiling/i.test(run.text) && nums(run.text).some(near(490)) && /\b(refus\w*|cannot|can't|won't|not appl\w*|pending)\b/i.test(run.text), 'raise to 600 above the 490.00 ceiling is refused until the client replies');
+        },
+      },
+      {
+        // The SOW is still Draft, so this ack acknowledges the SOW, not the pending raise.
+        prompt: '/price sow 12 ack 2026-11-13 whatsapp "Yes, go ahead with the export at 410"',
+        check(f, run, ok) {
+          const sow = sowText(f);
+          const ledger = ledgerOf(f);
+          ok(/Acknowledged/.test(sowStatus(sow)), `SOW status Acknowledged (${sowStatus(sow).trim() || 'none'})`);
+          ok(/Acknowledged/.test(tableCell(ledger, LINE12, 'SOW status') ?? '') && /SOW Acknowledged/.test(tableCell(ledger, LINE12, 'State') ?? ''), 'ledger SOW status Acknowledged, State SOW Acknowledged');
+          ok(/go ahead with the export/i.test(section(sow, /^History/)) && /2026-11-13|13 Nov/i.test(section(sow, /^History/)), 'History records the date and the client quote');
+          ok(numsAfter(sow, /Current fee/i).some(near(410)), 'Current fee still 410.00 (the raise stays pending)');
+          ok(!/\bsigned\b/i.test(sowStatus(sow)) && !/\bsigned\b/i.test(ledger.split('\n').find((l) => LINE12.test(l)) ?? ''), 'nothing marked signed');
+          ok(!/\bApproved\b/.test(ledger.split('\n').find((l) => LINE12.test(l)) ?? ''), 'line 12 never Approved');
+          ok(scopeUntouched(f), 'no scope row or spec changed');
         },
       },
     ],
