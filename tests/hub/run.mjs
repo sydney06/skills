@@ -109,6 +109,7 @@ const dates = (s) => [
 const firstOfNextMonth = (d) => { const [y, m] = d.split('-').map(Number); return m === 12 ? iso(y + 1, 1, 1) : iso(y, m + 1, 1); };
 const sowFile = (f, re) => { const n = sowFiles(f).find((x) => re.test(x)); return n ? readFileSync(join(f.hub, 'docs/billing/sows', n), 'utf8') : ''; };
 const ledgerOf = (f) => readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
+const OK_FILES = ['docs/billing/ledger.md', 'docs/billing/retainer-schedule.md'];
 const scheduleOf = (f) => readFileSync(join(f.hub, 'docs/billing/retainer-schedule.md'), 'utf8').replace(/\r\n/g, '\n');
 // The first table row matching `rowRe` as { header: cell }, read against its own table's header.
 const rowCells = (text, rowRe) => {
@@ -297,13 +298,13 @@ const SCENARIOS = {
         },
       },
       {
+        // Values, not wording: the refusal leaves both files byte for byte as they were.
         prompt: '/price approve 6 ok',
+        prepare(f) { f.okBefore = OK_FILES.map((p) => readFileSync(join(f.hub, p))); },
         check(f, run, ok) {
-          const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
-          const row = ledger.split('\n').find((l) => /^\|\s*6\s*\|/.test(l)) ?? '';
-          ok(/\bPending\b/.test(row) && !/\bApproved\b/.test(row), 'ledger row 6 unchanged (Pending, not Approved) after approve with "ok"');
-          ok(/\b(amount|number)\b/i.test(run.text) && /\b(refus\w*|cannot|can't|won't|not a)\b/i.test(run.text), 'approve with "ok" names the bad amount and refuses');
-          ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged after approve with "ok"');
+          OK_FILES.forEach((p, i) => ok(readFileSync(join(f.hub, p)).equals(f.okBefore[i]), `${p} byte identical after approve with "ok"`));
+          const approved = rowCells(ledgerOf(f), /^\|\s*6\s*\|/).Approved ?? '';
+          ok(!/\bApproved\b/.test(approved), `ledger line 6 not Approved (Approved cell: ${approved || 'none'})`);
         },
       },
       {
