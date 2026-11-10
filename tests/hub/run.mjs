@@ -14,7 +14,7 @@ import { join, dirname, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { buildFixture, installSkills, addGatePrefs, makeUncommittedChanges, makeFeatureBranches, git } from './fixture.mjs';
+import { buildFixture, installSkills, addGatePrefs, makeUncommittedChanges, makeFeatureBranches, makePriceFixture, git } from './fixture.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -165,6 +165,43 @@ const SCENARIOS = {
       ok(!existsSync(join(f.api, 'workflow.repos.json')), 'no hub created');
     },
   },
+  price: {
+    about: '/price audit builds sessions from author dates and proposes, never approves; approve with no amount is refused (two sessions)',
+    state: 'hub',
+    prepare(f) { makePriceFixture(f.hub, f.api); },
+    prompt: '/price audit 6',
+    check(f, run, ok) {
+      ok(readHub(run), 'read price/hub.md');
+      ok(ranGitIn(run, 'api'), 'ran git inside api');
+      const dir = join(f.hub, 'docs/billing/audits');
+      const files = existsSync(dir) ? readdirSync(dir) : [];
+      ok(files.length === 1, `one audit file written (${files.join(', ') || 'none'})`);
+      const audit = files.length ? readFileSync(join(dir, files[0]), 'utf8') : '';
+      ok(/2026-10-01|1 Oct(ober)? 2026|Oct(ober)? 1,? 2026/.test(audit) && !/2027-01-20|20 Jan(uary)? 2027/.test(audit), 'sessions use author dates, not push dates');
+      ok(/\b2\.5\b/.test(audit) && /\b2 sessions\b|two sessions/i.test(audit + run.text) || /\b2\.5\b/.test(audit), 'measured hours 2.5 (two sessions)');
+      const seen = audit + '\n' + run.text;
+      ok(/\b150\.00\b/.test(seen), 'effort fee 150.00 printed (2.5 h x 60)');
+      ok(/\b156\.25\b/.test(seen), 'solo fee 156.25 printed (6.25 h x 25)');
+      ok(/reference/i.test(seen), 'reference fee printed');
+      const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
+      const row = ledger.split('\n').find((l) => /^\|\s*6\s*\|/.test(l)) ?? '';
+      ok(/Proposed/i.test(row) || /Proposed/i.test(readFileSync(join(dir, files[0] ?? ''), 'utf8')), 'feature 6 is Proposed');
+      ok(!/\bApproved\b/.test(row.replace(/Approved \(/g, '')), 'ledger row 6 never says Approved');
+      ok(/\bPending\b/.test(row), 'Approved column stays Pending');
+      ok(git(f.hub, 'diff', 'HEAD', '--', 'docs/billing/rates.md') === '' && !/rates\.md/.test(git(f.hub, 'log', '--name-only', '--format=', 'HEAD~1..HEAD')), 'rates.md untouched');
+      ok(!/\b(5|five)\b[^\n]*shift scheduling[^\n]*\b(700|included)/i.test(audit), 'item 5 not counted');
+      ok(!bashCmds(run).some((c) => /git\s+(-C\s+\S+\s+)?push|gh\s+pr/.test(c)), 'no push, no gh pr');
+    },
+    then: {
+      prompt: '/price approve 6',
+      check(f, run, ok) {
+        const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
+        const row = ledger.split('\n').find((l) => /^\|\s*6\s*\|/.test(l)) ?? '';
+        ok(/\bPending\b/.test(row) && !/\bApproved\b/.test(row), 'ledger row 6 still Pending after approve with no amount');
+        ok(/amount|number/i.test(run.text) && /refus|need|requires?|missing|without|cannot|can't|won't|not/i.test(run.text), 'approve names the missing amount and refuses');
+      },
+    },
+  },
   review: {
     about: '/check review writes one findings file per repo into the hub (spawns reviewers, costly)',
     state: 'hub',
@@ -203,6 +240,12 @@ for (const name of names) {
   let pass = true;
   const ok = (cond, label) => { console.log(`  ${cond ? '✔' : '✘'} ${label}`); if (!cond) pass = false; };
   try { s.check(f, run, ok); } catch (e) { ok(false, `check threw: ${e.message}`); }
+  if (s.then) {
+    const run2 = runAgent(s.cwd ? s.cwd(f) : f.project, s.then.prompt, join(runsDir, `${name}-then.jsonl`));
+    total += run2.cost;
+    console.log(`  then: ${s.then.prompt}`);
+    try { s.then.check(f, run2, ok); } catch (e) { ok(false, `then check threw: ${e.message}`); }
+  }
   console.log(`  ${pass ? 'PASS' : 'FAIL'} · $${run.cost.toFixed(2)} · fixture ${flag('--keep') || !pass ? root : '(removed)'}`);
   if (!pass) failed++;
   else if (!flag('--keep')) rmSync(root, { recursive: true, force: true });
