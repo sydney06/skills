@@ -212,6 +212,16 @@ const SCENARIOS = {
         },
       },
       {
+        prompt: '/price approve 6 ok',
+        check(f, run, ok) {
+          const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
+          const row = ledger.split('\n').find((l) => /^\|\s*6\s*\|/.test(l)) ?? '';
+          ok(/\bPending\b/.test(row) && !/\bApproved\b/.test(row), 'ledger row 6 unchanged (Pending, not Approved) after approve with "ok"');
+          ok(/\b(amount|number)\b/i.test(run.text) && /\b(refus\w*|cannot|can't|won't|not a)\b/i.test(run.text), 'approve with "ok" names the bad amount and refuses');
+          ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged after approve with "ok"');
+        },
+      },
+      {
         // An audit exists for row 11, so only the In progress rule can refuse it.
         prepare(f) {
           writeFileSync(join(f.hub, 'docs/billing/audits/11-navigation.md'), '# Audit: Navigation\n\nLedger line 11 · work so far, not approvable\n\n**Work so far:** 300.00 · **Low:** 250.00 · **High:** 350.00\n');

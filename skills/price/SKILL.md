@@ -66,7 +66,7 @@ Read `templates/audit.md` before step 7.
 
 Runs only when the command carries both a feature and an amount. Quote the owner's words from the command in the report; never infer approval from earlier chat.
 
-1. **Refuse** when the feature has no audit, the amount is zero or negative or missing, the feature is Waived, or its ledger line is In progress (the work so far figure is information only). → say which, and stop.
+1. **Refuse** when the feature has no audit, the amount is missing or not a positive number with at most two decimals ("ok", "600 usd", zero and negative are all refused), the feature is Waived, or its ledger line is In progress (the work so far figure is information only). → say which, and stop.
 2. Compare the amount to the audit's low to high. Outside the range is accepted and flagged in the report.
 3. Set the ledger status to Approved with the amount, the rate row used, the date, and who gave the word and where. → the line says Approved with all four.
 4. Known deployment date → set warranty end and increment start, and rebuild `retainer-schedule.md`. Unknown → record Approved with the retainer effect **pending a date** and add nothing to any month.
