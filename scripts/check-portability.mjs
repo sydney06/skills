@@ -228,6 +228,11 @@ const HOT_PATH_BUDGETS = [
     budget: 14 * 1024,
     required: ['debug/SKILL.md', 'debug/hub.md'],
   },
+  {
+    name: 'hub: price audit path',
+    budget: 17 * 1024, // real size ~14.5 KiB (SKILL.md + hub.md + templates/audit.md)
+    required: ['price/SKILL.md', 'price/hub.md', 'price/templates/audit.md'],
+  },
 ];
 
 function walk(dir) {
