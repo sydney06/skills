@@ -57,6 +57,10 @@ const ranGitIn = (run, repo) => bashCmds(run).some((c) => {
     new RegExp(`(^|\\s)["']?${repo}["']?(\\s|$)`).test(list) &&
     new RegExp(`(git\\s+-C\\s+["']?\\$\\{?${v}\\b|cd\\s+["']?\\$\\{?${v}\\b[^]*git\\s)`).test(c));
 });
+// Month, Baseline, Approved increments and Fee cells of retainer-schedule.md (audit may not change them).
+const approvedCols = (hub) => readFileSync(join(hub, 'docs/billing/retainer-schedule.md'), 'utf8').split('\n')
+  .filter((l) => /^\|\s*(Month|[A-Z][a-z]{2} \d{4})\s*\|/.test(l))
+  .map((l) => l.split('|').slice(1, 5).map((c) => c.trim()).join('|')).join('\n');
 const branch = (dir) => git(dir, 'rev-parse', '--abbrev-ref', 'HEAD');
 const sha = (dir, ref) => git(dir, 'rev-parse', ref);
 const listFiles = (dir, skip = []) => readdirSync(dir, { recursive: true, withFileTypes: true })
@@ -166,9 +170,9 @@ const SCENARIOS = {
     },
   },
   price: {
-    about: '/price audit builds sessions from author dates and proposes, never approves; approve with no amount is refused (two sessions)',
+    about: '/price audit builds sessions from author dates and proposes, never approves; approve with no amount, and approve on an In progress line, are refused (three sessions)',
     state: 'hub',
-    prepare(f) { makePriceFixture(f.hub, f.api); },
+    prepare(f) { makePriceFixture(f.hub, f.api); f.retainerBefore = approvedCols(f.hub); },
     prompt: '/price audit 6',
     check(f, run, ok) {
       ok(readHub(run), 'read price/hub.md');
@@ -177,30 +181,51 @@ const SCENARIOS = {
       const files = existsSync(dir) ? readdirSync(dir) : [];
       ok(files.length === 1, `one audit file written (${files.join(', ') || 'none'})`);
       const audit = files.length ? readFileSync(join(dir, files[0]), 'utf8') : '';
-      ok(/2026-10-01|1 Oct(ober)? 2026|Oct(ober)? 1,? 2026/.test(audit) && !/2027-01-20|20 Jan(uary)? 2027/.test(audit), 'sessions use author dates, not push dates');
-      ok(/\b2\.5\b/.test(audit), 'measured hours 2.5 in the audit file');
+      // Only author dates give two sessions of 1.5 h and 1.0 h ending 15:30; the push time is 12:00.
+      const sessions = audit.split('\n').filter((l) => /^\|\s*\d+\s*\|/.test(l));
+      ok(sessions.length === 2 && sessions.some((l) => /\b1\.5\b/.test(l)) && sessions.some((l) => /\b1(\.0+)?\s*(h\b|\|)/.test(l)), `two sessions of 1.5 h and 1.0 h from author dates (${sessions.length} found)`);
+      ok(/\b15:30\b/.test(audit) && !/\b12:00\b/.test(audit), 'session ends use author times (15:30), not the push time (12:00)');
+      ok(/Measured hours[^\n]*\b2\.5\b/i.test(audit), 'measured hours 2.5 on the Measured hours line');
       const seen = audit + '\n' + run.text;
       ok(/\b150\.00\b/.test(seen), 'effort fee 150.00 printed (2.5 h x 60)');
-      ok(/\b156\.25\b/.test(seen), 'solo fee 156.25 printed (6.25 h x 25)');
+      ok(/\b125\.00\b/.test(seen), 'solo fee 125.00 printed (2.5 h x 2.0 = 5.0 h; 5.0 x 25)');
       ok(/reference/i.test(seen), 'reference fee printed');
       const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
       const row = ledger.split('\n').find((l) => /^\|\s*6\s*\|/.test(l)) ?? '';
-      ok(/Proposed/i.test(row) || /Proposed/i.test(audit), 'feature 6 is Proposed');
+      ok(/Proposed/i.test(row), 'ledger row 6 says Proposed');
       ok(!/\bApproved\b/.test(row.replace(/Approved \(/g, '')), 'ledger row 6 never says Approved');
       ok(/\bPending\b/.test(row), 'Approved column stays Pending');
+      ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md Month, Baseline, Approved increments and Fee unchanged after audit');
       ok(git(f.hub, 'status', '--porcelain', 'docs/billing/rates.md') === '' && git(f.hub, 'log', '--oneline', '--', 'docs/billing/rates.md').split('\n').length === 1, 'rates.md untouched');
       ok(!/\b(5|five)\b[^\n]*shift scheduling[^\n]*\b(700|included)/i.test(audit), 'item 5 not counted');
       ok(!bashCmds(run).some((c) => /git\s+(-C\s+\S+\s+)?push|gh\s+pr/.test(c)), 'no push, no gh pr');
     },
-    then: {
-      prompt: '/price approve 6',
-      check(f, run, ok) {
-        const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
-        const row = ledger.split('\n').find((l) => /^\|\s*6\s*\|/.test(l)) ?? '';
-        ok(/\bPending\b/.test(row) && !/\bApproved\b/.test(row), 'ledger row 6 still Pending after approve with no amount');
-        ok(/amount|number/i.test(run.text) && /refus|need|requires?|missing|without|cannot|can't|won't|not/i.test(run.text), 'approve names the missing amount and refuses');
+    then: [
+      {
+        prompt: '/price approve 6',
+        check(f, run, ok) {
+          const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
+          const row = ledger.split('\n').find((l) => /^\|\s*6\s*\|/.test(l)) ?? '';
+          ok(/\bPending\b/.test(row) && !/\bApproved\b/.test(row), 'ledger row 6 still Pending after approve with no amount');
+          ok(/\b(amount|number)\b/i.test(run.text) && /\b(refus\w*|need\w*|requires?|missing|without|cannot|can't|won't)\b/i.test(run.text), 'approve names the missing amount and refuses');
+          ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged after approve with no amount');
+        },
       },
-    },
+      {
+        // An audit exists for row 11, so only the In progress rule can refuse it.
+        prepare(f) {
+          writeFileSync(join(f.hub, 'docs/billing/audits/11-navigation.md'), '# Audit: Navigation\n\nLedger line 11 · work so far, not approvable\n\n**Work so far:** 300.00 · **Low:** 250.00 · **High:** 350.00\n');
+        },
+        prompt: '/price approve 11 300',
+        check(f, run, ok) {
+          const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
+          const row = ledger.split('\n').find((l) => /^\|\s*11\s*\|/.test(l)) ?? '';
+          ok(/In progress/i.test(row) && !/\bApproved\b/.test(row.replace(/Approved \(/g, '')) && /\bPending\b/.test(row), 'ledger row 11 still In progress and Pending after approve with an amount');
+          ok(/in progress/i.test(run.text) && /\b(refus\w*|cannot|can't|won't|not approvable)\b/i.test(run.text), 'approve refuses and names In progress');
+          ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged after the refused approve');
+        },
+      },
+    ],
   },
   review: {
     about: '/check review writes one findings file per repo into the hub (spawns reviewers, costly)',
@@ -240,11 +265,12 @@ for (const name of names) {
   let pass = true;
   const ok = (cond, label) => { console.log(`  ${cond ? '✔' : '✘'} ${label}`); if (!cond) pass = false; };
   try { s.check(f, run, ok); } catch (e) { ok(false, `check threw: ${e.message}`); }
-  if (s.then) {
-    const run2 = runAgent(s.cwd ? s.cwd(f) : f.project, s.then.prompt, join(runsDir, `${name}-then.jsonl`));
+  for (const [i, t] of [].concat(s.then ?? []).entries()) {
+    t.prepare?.(f);
+    const run2 = runAgent(s.cwd ? s.cwd(f) : f.project, t.prompt, join(runsDir, `${name}-then${i + 1}.jsonl`));
     total += run2.cost;
-    console.log(`  then: ${s.then.prompt}`);
-    try { s.then.check(f, run2, ok); } catch (e) { ok(false, `then check threw: ${e.message}`); }
+    console.log(`  then: ${t.prompt}`);
+    try { t.check(f, run2, ok); } catch (e) { ok(false, `then check threw: ${e.message}`); }
   }
   console.log(`  ${pass ? 'PASS' : 'FAIL'} · $${run.cost.toFixed(2)} · fixture ${flag('--keep') || !pass ? root : '(removed)'}`);
   if (!pass) failed++;

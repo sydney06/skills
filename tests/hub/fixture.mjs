@@ -298,8 +298,8 @@ export function makeFeatureBranches(api, web) {
 // (the push dates), plus a docs/billing folder in the hub.
 // Sessions by author date (gap over 3 hours splits): 2026-10-01 09:00, 09:30, 10:00
 // is one session (60 min + 30 = 1.5 h); 15:00, 15:30 is another (30 + 30 = 1.0 h).
-// Measured hours 2.5. At feature rate 60: effort fee 150.00. Speed factor 2.5 gives
-// solo hours 6.25, at contract rate 25: solo fee 156.25.
+// Measured hours 2.5. At feature rate 60: effort fee 150.00. Speed factor 2.0 (not
+// equal to the hours, on purpose) gives solo hours 5.0, at contract rate 25: solo fee 125.00.
 const PRICE_COMMITS = [
   ['2026-10-01T09:00:00', 'feat: trip count query (ledger 6)'],
   ['2026-10-01T09:30:00', 'feat: trip count route (ledger 6)'],
@@ -326,7 +326,7 @@ Fixture billing records. Amounts in USD. Nothing is Approved unless the owner wr
 
 | From | Contract rate | Feature rate | Speed factor | Status | Note |
 |---|---|---|---|---|---|
-| 1 Oct 2026 | 25.00 | 60.00 | 2.5 | **Active** | Fixture rate. |
+| 15 Sep 2026 | 25.00 | 60.00 | 2.0 | **Active** | Fixture rate. |
 `);
   write(join(hub, 'docs/billing/ledger.md'), `
 # Feature ledger
@@ -348,18 +348,24 @@ Status key: Proposed (suggested, waiting) · Approved (the owner wrote "approved
 | # | Feature | Repos | Proposed price | Approved | Deployed | Warranty ends | Increment starts |
 |---|---|---|---|---|---|---|---|
 | 6 | Trip count | api | **100.00** | Pending | to confirm | | |
+
+## 3. In progress
+
+| # | Feature | Repos | Proposed price | Approved | Deployed | Warranty ends | Increment starts |
+|---|---|---|---|---|---|---|---|
+| 11 | Navigation | api | In progress | Pending | | | |
 `);
   write(join(hub, 'docs/billing/retainer-schedule.md'), `
 # Retainer schedule
 
 The increment is 15% of the approved fee and starts on the 1st of the month after the 14 day warranty ends. Term ends 31 Mar 2027.
 
-| Month | Baseline | Approved increments | Fee |
-|---|---|---|---|
-| Dec 2026 | 1,300.00 | 0.00 | 1,300.00 |
-| Jan 2027 | 1,300.00 | 0.00 | 1,300.00 |
-| Feb 2027 | 1,300.00 | 0.00 | 1,300.00 |
-| Mar 2027 | 1,300.00 | 0.00 | 1,300.00 |
+| Month | Baseline | Approved increments | Fee | Preview if approved |
+|---|---|---|---|---|
+| Dec 2026 | 1,300.00 | 0.00 | 1,300.00 | |
+| Jan 2027 | 1,300.00 | 0.00 | 1,300.00 | |
+| Feb 2027 | 1,300.00 | 0.00 | 1,300.00 | |
+| Mar 2027 | 1,300.00 | 0.00 | 1,300.00 | |
 `);
   commitAll(hub, 'billing fixture');
 }
