@@ -27,7 +27,7 @@ Two modes: `/price audit <feature>` measures finished work and writes a Proposed
 | Read git history, PRs, scope rows, specs, review and verify notes across the repos | yes, read only | |
 | Read Render deploy history through `scripts/render-ro.ps1` (never any other Render call) | yes, read only | |
 | Create `docs/billing/audits/<feature>.md` | yes | /price |
-| Write a Proposed price into `ledger.md` and the preview into `retainer-schedule.md` | yes (`audit`) | /price |
+| Write a Proposed price into `ledger.md` and the preview into `retainer-schedule.md` (only the preview column and the "if approved" figures, never `Approved increments` or `Fee`, which change only in `approve`) | yes (`audit`) | /price |
 | Set Approved with amount, rate and dates, rebuild the retainer table | only in `approve`, only when the owner's words are in the command | /price |
 | Edit `rates.md` | no, propose a rate change in the report | owner |
 | Edit scope rows, specs, code, `AGENTS.md`, the Agreement | no, flag what you found | /scope, /architect, /develop, /sync |
