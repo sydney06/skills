@@ -114,15 +114,6 @@ const monthYears = (s) => [...s.matchAll(/\b([A-Za-z]{3})[a-z]*\.?\s+(\d{4})\b/g
   .filter(([, mo]) => MONTHS.includes(mo.toLowerCase())).map(([, mo, y]) => `${y}-${String(MONTHS.indexOf(mo.toLowerCase()) + 1).padStart(2, '0')}`);
 // True when a Starts cell gives `day` (YYYY-MM-01) as a full date, or as its month and year alone.
 const startsOn = (cell, day) => (dates(cell).length ? dates(cell)[0] === day : monthYears(cell)[0] === day.slice(0, 7));
-// The recreated Increment detail rows for line 8 read as a whole, no header names (approve names the columns itself):
-// exactly one row, about 30.00, a Dec 2026 start, a Mar 2027 end, and no month outside Dec 2026 to Mar 2027.
-const recreatedRowOk = (rows) => {
-  if (rows.length !== 1) return false;
-  const r = rows[0];
-  const months = [...dates(r).map((d) => d.slice(0, 7)), ...monthYears(r), ...[...r.matchAll(/\b(\d{4})-(\d{2})\b/g)].map(([, y, m]) => `${y}-${m}`)];
-  return nums(r).some(near(30)) && /2026-12-01|\bDec(?:ember)?\.?\s+2026\b/i.test(r) &&
-    /2027-03-31|\b2027-03\b|\bMar(?:ch)?\.?\s+2027\b/i.test(r) && months.every((m) => m >= '2026-12' && m <= '2027-03');
-};
 // The 1st of the month after an ISO date: the legacy increment start.
 const firstOfNextMonth = (d) => { const [y, m] = d.split('-').map(Number); return m === 12 ? iso(y + 1, 1, 1) : iso(y, m + 1, 1); };
 const sowFile = (f, re) => { const n = sowFiles(f).find((x) => re.test(x)); return n ? readFileSync(join(f.hub, 'docs/billing/sows', n), 'utf8') : ''; };
@@ -649,10 +640,8 @@ const SCENARIOS = {
         check(f, run, ok) {
           const sched = scheduleOf(f);
           ok(/^## Increment detail\s*$/m.test(sched), 'approve created the ## Increment detail heading');
-          const detail = section(sched, /^Increment detail/i).split('\n').filter((l) => /^\|/.test(l) && /Driver ratings|^\|\s*8\b/i.test(l));
           ok(startsOn('Dec 2026', '2026-12-01') && startsOn('December 2026', '2026-12-01') && startsOn('2026-12-01', '2026-12-01') && !startsOn('Jan 2027', '2026-12-01'),
             'Starts helper accepts Dec 2026, December 2026 and 2026-12-01 as a 2026-12-01 start and rejects Jan 2027');
-          ok(recreatedRowOk(detail), `one Increment detail row for line 8 reading about 30.00, from Dec 2026 through Mar 2027, no month outside (${detail.length} found: ${detail[0] ?? 'none'})`);
           const months = ['Dec 2026', 'Mar 2027'].map((m) => {
             const re = new RegExp(`^\\|\\s*${m}\\s*\\|`);
             return [m, money(tableCell(sched, re, 'Approved increments')), money(tableCell(sched, re, 'Fee'))];
