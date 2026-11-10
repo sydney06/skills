@@ -322,11 +322,13 @@ const SCENARIOS = {
           const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
           const row = ledger.split('\n').find((l) => /^\|\s*11\s*\|/.test(l)) ?? '';
           ok(/In progress/i.test(row) && !/\bProposed\b/.test(row) && !/\bApproved\b/.test(row.replace(/Approved \(/g, '')), 'ledger row 11 stays In progress after audit (not Proposed, not Approved)');
-          // Values, not wording: work so far 40.00 in the price cell, no proposed or approved amount.
+          // Values, not wording. NAV_COMMITS: one session, 20 min + 30 min = 0.833 h. Solo fee 0.833 x 2.0 x 25 = 41.67,
+          // effort fee 0.833 x 60 = 50.00. The median of three lies between them, so nearest 5 gives 40, 45 or 50.
           const c11 = rowCells(ledger, /^\|\s*11\s*\|/);
           const price11 = c11['Proposed price'] ?? '';
-          ok(/work so far/i.test(price11) && near(40)(nums(price11.slice(price11.search(/work so far/i)))[0] ?? NaN),
-            `ledger row 11 price cell says work so far 40.00 (${price11 || 'none'})`);
+          const sofar = nums(price11.slice(price11.search(/work so far/i)))[0] ?? NaN;
+          ok(/work so far/i.test(price11) && sofar % 5 === 0 && sofar >= 40 && sofar <= 50,
+            `ledger row 11 price cell says work so far, a multiple of 5 from 40 (solo 41.67) to 50 (effort 50.00) (${price11 || 'none'})`);
           ok(!/\b(Proposed|Approved)\b/i.test(price11) && nums(c11.Approved ?? '').length === 0,
             `ledger row 11 has no proposed or approved amount (Approved cell: ${c11.Approved || 'none'})`);
           ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged after auditing row 11');
@@ -422,6 +424,15 @@ const SCENARIOS = {
           ok(scopeUntouched(f), 'no scope row or spec changed');
         },
       },
+      {
+        // Rerun on a row that already has a ledger line: it reuses line 12, never adds a second.
+        prompt: '/price classify row 3',
+        check(f, run, ok) {
+          const lines = ledgerOf(f).split('\n').filter((l) => /^\|\s*\d+\s*\|/.test(l) && /Trip history export|row 3\b/i.test(l));
+          ok(lines.length === 1 && LINE12.test(lines[0]), `one ledger line for row 3, line 12 (${lines.length} found)`);
+          ok(!ledgerOf(f).split('\n').some((l) => /^\|\s*13\s*\|/.test(l)), 'no ledger line 13');
+        },
+      },
     ],
   },
   quote: {
@@ -479,6 +490,15 @@ const SCENARIOS = {
       ok(scopeUntouched(f), 'no scope row or spec changed');
     },
     then: [
+      {
+        // Line 12 now has SOW-001 (Draft): quote is refused and changes no figure.
+        prompt: '/price quote 12',
+        prepare(f) { f.ledgerBefore = ledgerOf(f); },
+        check(f, run, ok) {
+          ok(ledgerOf(f) === f.ledgerBefore, 'ledger unchanged after quote on a line with a SOW no.');
+          ok(/\bSOW\b/.test(run.text) && /\b(decline|raise)\b/i.test(run.text) && /\b(refus\w*|cannot|can't|won't)\b/i.test(run.text), 'quote refused, names the SOW and says to decline or raise on it');
+        },
+      },
       {
         prompt: '/price sow 12 ack 2026-11-12 whatsapp',
         check(f, run, ok) {
@@ -584,6 +604,7 @@ const SCENARIOS = {
           const row = rowCells(ledgerOf(f), LINE8);
           ok(/Approved/.test(row.Approved ?? '') && nums(row.Approved ?? '').some(near(200)), 'line 8 still Approved at 200.00');
           ok(!('State' in row) && dates(row['SOW acknowledged'] ?? '')[0] === '2026-11-25', 'line 8 has no State cell and keeps SOW acknowledged 2026-11-25');
+          ok(/to confirm/i.test(row.Deployed ?? ''), `line 8 Deployed still "to confirm", so 30.00 from 2026-12-01 comes from the ack, not deployment (${row.Deployed || 'none'})`);
           ok(noPush(run), 'no git push, no gh pr');
         },
       },
