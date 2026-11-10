@@ -170,7 +170,7 @@ const SCENARIOS = {
     },
   },
   price: {
-    about: '/price audit builds sessions from author dates and proposes, never approves; approve with no amount, and approve on an In progress line, are refused (five sessions)',
+    about: '/price audit builds sessions from author dates and proposes, never approves; approve with no amount, and approve on an In progress line, are refused; a legacy line is priced by size, calibrated on Appendix A (six sessions)',
     state: 'hub',
     prepare(f) { makePriceFixture(f.hub, f.api); f.retainerBefore = approvedCols(f.hub); },
     prompt: '/price audit 6',
@@ -243,6 +243,38 @@ const SCENARIOS = {
           ok(/In progress/i.test(row) && !/\bApproved\b/.test(row.replace(/Approved \(/g, '')) && /\bPending\b/.test(row), 'ledger row 11 still In progress and Pending after approve with an amount');
           ok(/in progress/i.test(run.text) && /\b(refus\w*|cannot|can't|won't|not approvable)\b/i.test(run.text), 'approve refuses and names In progress');
           ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged after the refused approve');
+        },
+      },
+      {
+        // Legacy basis: arithmetic in fixture.mjs above LEGACY_COMMITS.
+        prompt: '/price audit 7',
+        prepare(f) { const d = join(f.hub, 'docs/billing/audits'); f.auditsBefore = existsSync(d) ? readdirSync(d) : []; },
+        check(f, run, ok) {
+          const dir = join(f.hub, 'docs/billing/audits');
+          const added = (existsSync(dir) ? readdirSync(dir) : []).filter((n) => !f.auditsBefore.includes(n));
+          ok(added.length === 1, `one new audit file for row 7 (${added.join(', ') || 'none'})`);
+          const audit = added.length ? readFileSync(join(dir, added[0]), 'utf8') : '';
+          const seen = audit + '\n' + run.text;
+          const rows = audit.split('\n').filter((l) => l.startsWith('|'));
+          ok(/Basis[^\n]*legacy/i.test(audit), 'audit states Basis legacy');
+          ok(!/Measured hours/i.test(audit) && !/(^|[^\d.])2\.50*\s*(h|hrs?|hours?)\b|(^|[^\d.])150\s*min/i.test(audit) && !/\b150\.00\b/.test(audit),
+            'no commit hours: no Measured hours, no 2.5 h, no effort fee 150.00');
+          ok(/package-lock\.json/.test(audit) && /generated[\\/]prisma/.test(audit), 'excluded lockfile and generated Prisma client named');
+          ok(/Size score[^\n]*(^|[^\d.])7(\.0+)?(?![\d.]*\d)/i.test(audit), 'size score 7.0 (3 routes 3.0 + migration 1.5 + 2 emails 1.0 + 300 lines 1.5)');
+          ok(rows.some((l) => /(^|[^\d.])4\.80*\b/.test(l) && /(^|[^\d.])2\.40*\b/.test(l)), 'calibration row for item 1: 120 / 25 = 4.8 h, 4.8 / 2.0 = 2.4 h per point');
+          ok(rows.some((l) => /(^|[^\d.])8(\.0+)?\b/.test(l) && /(^|[^\d.])1\.60*\b/.test(l)), 'calibration row for item 2: 200 / 25 = 8 h, 8 / 5.0 = 1.6 h per point');
+          ok(/median[^\n]*(^|[^\d.])2(\.0+)?(?![\d.]*\d)/i.test(audit), 'median 2.0 h per point ((2.4 + 1.6) / 2)');
+          ok(/Solo hours[^\n]*(^|[^\d.])14(\.0+)?(?![\d.]*\d)/i.test(audit), 'solo hours 14.0 (7.0 x 2.0)');
+          ok(/\b350\.00\b|\*\*350\*\*/.test(audit), 'fee 350.00 (14.0 x 25)');
+          ok(/\b280(\.00)?\b/.test(audit) && /\b420(\.00)?\b/.test(audit), 'low 280.00 (7.0 x 1.6 x 25) and high 420.00 (7.0 x 2.4 x 25)');
+          ok(/Confidence[^\n]*\bLow\b/i.test(audit), 'confidence Low (two anchors, under three)');
+          ok(/\bSOW\b/.test(run.text) && /\bSOW\b[^\n]*pending|pending[^\n]*\bSOW\b/i.test(audit), 'asks for the SOW date and leaves the increment pending');
+          ok(!/\bApproved\b/.test(audit), 'legacy audit never contains the word Approved');
+          const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
+          const row = ledger.split('\n').find((l) => /^\|\s*7\s*\|/.test(l)) ?? '';
+          ok(/Proposed/i.test(row) && /\b350\.00\b/.test(row) && /\bPending\b/.test(row) && !/\bApproved\b/.test(row.replace(/Approved \(/g, '')), 'ledger row 7 Proposed at 350.00, Approved still Pending');
+          ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged after the legacy audit');
+          ok(!/^\d/.test(seen.match(/Increment starts:?\s*([^\n|]*)/i)?.[1]?.trim() ?? ''), 'increment start not dated without a SOW date');
         },
       },
     ],
