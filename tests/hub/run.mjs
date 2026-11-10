@@ -14,7 +14,7 @@ import { join, dirname, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { buildFixture, installSkills, addGatePrefs, makeUncommittedChanges, makeFeatureBranches, makePriceFixture, git } from './fixture.mjs';
+import { buildFixture, installSkills, addGatePrefs, makeUncommittedChanges, makeFeatureBranches, makePriceFixture, makeLifecycleFixture, makeLegacySowFixture, makeLegacyApprovedFixture, git } from './fixture.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -40,7 +40,10 @@ function runAgent(cwd, prompt, transcriptPath) {
   const tools = events.filter((e) => e.type === 'assistant')
     .flatMap((e) => e.message?.content ?? []).filter((c) => c.type === 'tool_use');
   const result = events.find((e) => e.type === 'result') ?? {};
-  return { tools, text: result.result ?? '', cost: result.total_cost_usd ?? 0, error: res.error ?? (res.status ? res.stderr : null) };
+  // Every assistant text block, so a question the agent asked (and answered itself, unattended) is visible.
+  const said = events.filter((e) => e.type === 'assistant').flatMap((e) => e.message?.content ?? [])
+    .filter((c) => c.type === 'text').map((c) => c.text).concat(result.result ?? '').join('\n');
+  return { tools, said, text: result.result ?? '', cost: result.total_cost_usd ?? 0, error: res.error ?? (res.status ? res.stderr : null) };
 }
 
 // ---- helpers for assertions ------------------------------------------------
@@ -61,6 +64,115 @@ const ranGitIn = (run, repo) => bashCmds(run).some((c) => {
 const approvedCols = (hub) => readFileSync(join(hub, 'docs/billing/retainer-schedule.md'), 'utf8').split('\n')
   .filter((l) => /^\|\s*(Month|[A-Z][a-z]{2} \d{4})\s*\|/.test(l))
   .map((l) => l.split('|').slice(1, 5).map((c) => c.trim()).join('|')).join('\n');
+// True when a line of `text` says Approved, ignoring lines that negate it or tell the owner to run /price approve.
+const saysApproved = (text) => text.split('\n')
+  .filter((l) => !/\b(not|never|isn't|is not|until)\b[^.]*\bapproved\b/i.test(l) && !/\/price approve\b/i.test(l))
+  .some((l) => /\bApproved\b/.test(l));
+// Numbers in `s` with "N min" read as hours, skipping times like 12:00, so 2.5 = 2.50 and 150 = 150.00.
+const nums = (s) => [...s.matchAll(/(?<![\d.:])(\d+(?:\.\d+)?)(?![\d:])(\s*min\b)?/gi)].map((m) => (m[2] ? m[1] / 60 : +m[1]));
+const near = (v) => (n) => Math.abs(n - v) < 0.01;
+// Numbers after `label` on every line that has it.
+const numsAfter = (text, label) => text.split('\n').flatMap((l) => { const i = l.search(label); return i < 0 ? [] : nums(l.slice(i)); });
+// Cell `col` of the first table line matching `rowRe`, read against the header of the table it sits in.
+const tableCell = (text, rowRe, col) => {
+  const ls = text.split('\n');
+  const i = ls.findIndex((l) => l.startsWith('|') && rowRe.test(l));
+  if (i < 0) return undefined;
+  let h = i;
+  while (h > 0 && ls[h - 1].startsWith('|')) h--;
+  const j = ls[h].split('|').map((c) => c.trim()).findIndex((c) => c === col);
+  return j < 0 ? undefined : ls[i].split('|')[j]?.trim();
+};
+// True when the agent read modes/<mode>.md, by the Read tool or a shell command.
+const readMode = (run, mode) => run.tools.some((t) =>
+  (t.name === 'Read' && new RegExp(`modes[\\\\/]${mode}\\.md$`).test(t.input?.file_path ?? '')) ||
+  (['Bash', 'PowerShell'].includes(t.name) && new RegExp(`modes[\\\\/]${mode}\\.md`).test(t.input?.command ?? '')));
+const section = (text, re) => text.split(/^## /m).find((s) => re.test(s)) ?? '';
+const readIf = (path) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
+// The harness is unattended, so nobody answers: accept the three options printed, or the row's
+// classification.md Decided by cell reading pending owner confirmation (never a bare Owner).
+const ANSWERS = ['New Feature', 'Maintenance', 'Needs discussion'];
+const classOf = (f) => readIf(join(f.hub, 'docs/billing/classification.md'));
+const decidedBy = (f, rowRe) => tableCell(classOf(f), rowRe, 'Decided by') ?? '';
+const askedOrPending = (f, said, rowRe) => ANSWERS.every((a) => said.includes(a)) ||
+  /pending owner confirmation/i.test(decidedBy(f, rowRe));
+const LINE12 = /^\|\s*12\s*\|/;
+const LINE7 = /^\|\s*7\s*\|/;
+const LINE8 = /^\|\s*8\s*\|/;
+// Every date in `s` as YYYY-MM-DD: 2026-11-20, 20 Nov 2026, 20 November 2026, Nov 20, 2026, 1st Dec 2026.
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+const iso = (y, m, d) => `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+const dates = (s) => [
+  ...[...s.matchAll(/\b(\d{4})-(\d{2})-(\d{2})\b/g)].map(([, y, m, d]) => iso(y, +m, +d)),
+  ...[...s.matchAll(/\b(\d{1,2})(?:st|nd|rd|th)?\s+([A-Za-z]{3})[a-z]*\.?,?\s+(\d{4})\b/g)]
+    .filter(([, , mo]) => MONTHS.includes(mo.toLowerCase())).map(([, d, mo, y]) => iso(y, MONTHS.indexOf(mo.toLowerCase()) + 1, +d)),
+  ...[...s.matchAll(/\b([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\b/g)]
+    .filter(([, mo]) => MONTHS.includes(mo.toLowerCase())).map(([, mo, d, y]) => iso(y, MONTHS.indexOf(mo.toLowerCase()) + 1, +d)),
+];
+// Every month and year in `s` as YYYY-MM: Dec 2026, December 2026.
+const monthYears = (s) => [...s.matchAll(/\b([A-Za-z]{3})[a-z]*\.?\s+(\d{4})\b/g)]
+  .filter(([, mo]) => MONTHS.includes(mo.toLowerCase())).map(([, mo, y]) => `${y}-${String(MONTHS.indexOf(mo.toLowerCase()) + 1).padStart(2, '0')}`);
+// True when a Starts cell gives `day` (YYYY-MM-01) as a full date, or as its month and year alone.
+const startsOn = (cell, day) => (dates(cell).length ? dates(cell)[0] === day : monthYears(cell)[0] === day.slice(0, 7));
+// The 1st of the month after an ISO date: the legacy increment start.
+const firstOfNextMonth = (d) => { const [y, m] = d.split('-').map(Number); return m === 12 ? iso(y + 1, 1, 1) : iso(y, m + 1, 1); };
+const sowFile = (f, re) => { const n = sowFiles(f).find((x) => re.test(x)); return n ? readFileSync(join(f.hub, 'docs/billing/sows', n), 'utf8') : ''; };
+const ledgerOf = (f) => readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
+const OK_FILES = ['docs/billing/ledger.md', 'docs/billing/retainer-schedule.md'];
+const scheduleOf = (f) => readFileSync(join(f.hub, 'docs/billing/retainer-schedule.md'), 'utf8').replace(/\r\n/g, '\n');
+// The first table row matching `rowRe` as { header: cell }, read against its own table's header.
+const rowCells = (text, rowRe) => {
+  const ls = text.split('\n');
+  const i = ls.findIndex((l) => l.startsWith('|') && rowRe.test(l));
+  if (i < 0) return {};
+  let h = i; while (h > 0 && ls[h - 1].startsWith('|')) h--;
+  const cells = (l) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+  const row = cells(ls[i]);
+  return Object.fromEntries(cells(ls[h]).map((c, k) => [c, row[k] ?? '']));
+};
+// Cell count of each line (header, separator, rows) in the table holding the first row matching `rowRe`.
+const tableCellCounts = (text, rowRe) => {
+  const ls = text.replace(/\r\n/g, '\n').split('\n');
+  const i = ls.findIndex((l) => l.startsWith('|') && rowRe.test(l));
+  if (i < 0) return [];
+  let h = i; while (h > 0 && ls[h - 1].startsWith('|')) h--;
+  let e = i; while (e + 1 < ls.length && ls[e + 1].startsWith('|')) e++;
+  return ls.slice(h, e + 1).map((l) => l.trim().replace(/^\||\|$/g, '').split('|').length);
+};
+// The legacy table (fixture: 10 columns) after `sow 7 register` adds SOW no. and SOW status: 12 cells in
+// the header, the separator and rows 6, 7, 8, i.e. [12, 12, 12, 12, 12]; ack adds no column, so the same.
+const legacyTableAligned = (f, ok) => {
+  const n = tableCellCounts(ledgerOf(f), LINE7);
+  ok(n.length === 5 && n.every((c) => c === 12), `legacy table: header, separator and rows 6, 7, 8 each have 12 cells (${n.join(', ') || 'no table'})`);
+};
+// Cells other than SOW status and SOW acknowledged that differ between two rowCells results.
+const otherCellsChanged = (before, after) => [...new Set([...Object.keys(before), ...Object.keys(after)])]
+  .filter((c) => !['SOW status', 'SOW acknowledged'].includes(c) && (before[c] ?? '') !== (after[c] ?? ''));
+// A money cell ("1,330.00", "**30.00**") as a number.
+const money = (c) => parseFloat(String(c ?? '').replace(/[*,\s$]|USD/gi, ''));
+// The hub's own Increment detail header, which approve step 4 names for a recreated table.
+const DETAIL_HEADER = ['Feature', 'Approved fee', 'Increment (15%)', 'Deployed', 'Warranty ends', 'Increment starts'];
+// Faults in a recreated Increment detail table for line 8, read by those header names ([] = none): that exact
+// header, exactly one line 8 row, Approved fee 200.00, Increment (15%) 30.00, Increment starts 2026-12-01 or Dec 2026.
+const recreatedDetailFaults = (sched) => {
+  const cells = (l) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+  const ls = section(sched, /^Increment detail/i).split('\n').filter((l) => l.startsWith('|'));
+  if (!ls.length) return ['no table under the heading'];
+  const head = cells(ls[0]);
+  const faults = head.join(' | ') === DETAIL_HEADER.join(' | ') ? [] : [`header is ${ls[0].trim()}`];
+  const rows = ls.slice(2).filter((l) => /Driver ratings|^\|\s*8\b/i.test(l));
+  if (rows.length !== 1) return [...faults, `${rows.length} rows for line 8`];
+  const row = Object.fromEntries(head.map((c, k) => [c, cells(rows[0])[k] ?? '']));
+  if (!near(200)(money(row['Approved fee']))) faults.push(`Approved fee ${row['Approved fee'] ?? 'missing'}`);
+  if (!near(30)(money(row['Increment (15%)']))) faults.push(`Increment (15%) ${row['Increment (15%)'] ?? 'missing'}`);
+  if (!startsOn(row['Increment starts'] ?? '', '2026-12-01')) faults.push(`Increment starts ${row['Increment starts'] ?? 'missing'}`);
+  return faults;
+};
+const scopeUntouched = (f) => git(f.hub, 'status', '--porcelain', 'docs/scope', 'docs/specs') === '';
+const noPush = (run) => !bashCmds(run).some((c) => /git\s+(-C\s+\S+\s+)?push\b|gh\s+pr\s+(create|edit|merge)\b/.test(c));
+const sowFiles = (f) => { const d = join(f.hub, 'docs/billing/sows'); return existsSync(d) ? readdirSync(d) : []; };
+const sowText = (f) => { const [n] = sowFiles(f); return n ? readFileSync(join(f.hub, 'docs/billing/sows', n), 'utf8') : ''; };
+const sowStatus = (sow) => sow.match(/^Status:([^\n·]*)/m)?.[1] ?? '';
 const branch = (dir) => git(dir, 'rev-parse', '--abbrev-ref', 'HEAD');
 const sha = (dir, ref) => git(dir, 'rev-parse', ref);
 const listFiles = (dir, skip = []) => readdirSync(dir, { recursive: true, withFileTypes: true })
@@ -170,7 +282,7 @@ const SCENARIOS = {
     },
   },
   price: {
-    about: '/price audit builds sessions from author dates and proposes, never approves; approve with no amount, and approve on an In progress line, are refused (five sessions)',
+    about: '/price audit builds sessions from author dates and proposes, never approves; approve with no amount, and approve on an In progress line, are refused; a legacy line is priced by size, calibrated on Appendix A (six sessions)',
     state: 'hub',
     prepare(f) { makePriceFixture(f.hub, f.api); f.retainerBefore = approvedCols(f.hub); },
     prompt: '/price audit 6',
@@ -182,19 +294,37 @@ const SCENARIOS = {
       ok(files.length === 1, `one audit file written (${files.join(', ') || 'none'})`);
       const audit = files.length ? readFileSync(join(dir, files[0]), 'utf8') : '';
       // Only author dates give two sessions of 1.5 h and 1.0 h ending 15:30; the push time is 12:00.
-      const sessions = audit.split('\n').filter((l) => /^\|\s*\d+\s*\|/.test(l));
-      const is90 = (l) => /(^|[^\d.])1\.5\s*(h|hr|hrs|hours?)\b|(^|[^\d.])90\s*min/i.test(l);
-      const is60 = (l) => /(^|[^\d.])1(\.0+)?\s*(h|hr|hrs|hours?)\b|(^|[^\d.])60\s*min/i.test(l);
-      ok(sessions.length === 2 && sessions.some(is90) && sessions.some(is60), `two sessions of 1.5 h (90 min) and 1.0 h (60 min) from author dates (${sessions.length} found)`);
-      ok(/15:30/.test(audit) && !/12:00/.test(audit), 'session ends use author times (15:30), not the push time (12:00)');
-      ok(/Measured hours[^\n]*((^|[^\d.])2\.50*(?![\d.]*\d)|(^|[^\d.])150\s*min)/i.test(audit), 'measured hours 2.5 (or 150 min) on the Measured hours line');
+      // Scoped to the Sessions section: ledger 7's lockfile commit is authored at 12:00 and may be listed elsewhere.
+      const sessionsPart = audit.split(/^## /m).find((s) => /^Sessions\b/.test(s)) ?? '';
+      const sessions = sessionsPart.split('\n').filter((l) => /^\|\s*\d+\s*\|/.test(l));
+      // Length cell: the LAST number followed by h, else the last number followed by min, / 60.
+      // The cell may show its working first (1.0 h + 0.5 h = 1.5 h); the result is last.
+      const lenHead = sessionsPart.split('\n').find((l) => /^\|[^\n]*Length/i.test(l)) ?? '';
+      const lenCol = lenHead.split('|').findIndex((c) => /Length/i.test(c));
+      const cellHours = (cell) => {
+        const h = [...cell.matchAll(/(?<![\d.])(\d+(?:\.\d+)?)\s*(h|hrs?|hours?)\b/gi)].at(-1);
+        const m = [...cell.matchAll(/(?<![\d.])(\d+(?:\.\d+)?)\s*min\b/gi)].at(-1);
+        return h ? +h[1] : m ? m[1] / 60 : NaN;
+      };
+      const lengthHours = (l) => {
+        const cells = l.split('|');
+        return cellHours(cells[lenCol > 0 ? lenCol : cells.length - 2] ?? '');
+      };
+      ok(near(1.5)(cellHours('1.0 h + 0.5 h = 1.5 h')), 'length helper reads the last h number of a cell that shows its working (1.0 h + 0.5 h = 1.5 h → 1.5)');
+      const lengths = sessions.map(lengthHours);
+      ok(sessions.length === 2 && lengths.some(near(1.5)) && lengths.some(near(1.0)), `two sessions of 1.5 h (90 min) and 1.0 h (60 min) from author dates (${sessions.length} found: ${lengths.join(', ')} h)`);
+      ok(sessions.some((l) => /15:30/.test(l)) && !sessions.some((l) => /12:00/.test(l)), 'session ends use author times (15:30), not the push time (12:00)');
+      ok(numsAfter(audit, /Measured hours/i).some(near(2.5)), 'measured hours 2.5 (or 150 min) on the Measured hours line');
       const seen = audit + '\n' + run.text;
-      ok(/\b150\.00\b/.test(seen), 'effort fee 150.00 printed (2.5 h x 60)');
-      ok(/\b125\.00\b/.test(seen), 'solo fee 125.00 printed (2.5 h x 2.0 = 5.0 h; 5.0 x 25)');
+      // Fee cell (last cell) of the Effort or Solo row in the Fees table.
+      const feeCell = (name) => nums(audit.split('\n').find((l) => new RegExp(`^\\|\\s*${name}\\b`, 'i').test(l))?.split('|').filter((c) => c.trim()).at(-1) ?? '');
+      ok(feeCell('Effort').some(near(150)), 'effort fee 150.00 printed (2.5 h x 60)');
+      ok(feeCell('Solo').some(near(125)), 'solo fee 125.00 printed (2.5 h x 2.0 = 5.0 h; 5.0 x 25)');
       ok(/reference/i.test(seen), 'reference fee printed');
       const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
       const row = ledger.split('\n').find((l) => /^\|\s*6\s*\|/.test(l)) ?? '';
-      ok(!/\bApproved\b/.test(audit), 'audit file never contains the word Approved');
+      ok(!saysApproved('Not Approved: that needs /price approve <amount>') && saysApproved('Status: Approved'), 'Approved helper ignores a negating line (Not Approved: that needs /price approve <amount>) and catches Status: Approved');
+      ok(!saysApproved(audit), 'audit file never says Approved (negating lines ignored)');
       ok(/Proposed/i.test(row), 'ledger row 6 says Proposed');
       ok(!/\bApproved\b/.test(row.replace(/Approved \(/g, '')), 'ledger row 6 never says Approved');
       ok(/\bPending\b/.test(row), 'Approved column stays Pending');
@@ -215,13 +345,13 @@ const SCENARIOS = {
         },
       },
       {
+        // Values, not wording: the refusal leaves both files byte for byte as they were.
         prompt: '/price approve 6 ok',
+        prepare(f) { f.okBefore = OK_FILES.map((p) => readFileSync(join(f.hub, p))); },
         check(f, run, ok) {
-          const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
-          const row = ledger.split('\n').find((l) => /^\|\s*6\s*\|/.test(l)) ?? '';
-          ok(/\bPending\b/.test(row) && !/\bApproved\b/.test(row), 'ledger row 6 unchanged (Pending, not Approved) after approve with "ok"');
-          ok(/\b(amount|number)\b/i.test(run.text) && /\b(refus\w*|cannot|can't|won't|not a)\b/i.test(run.text), 'approve with "ok" names the bad amount and refuses');
-          ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged after approve with "ok"');
+          OK_FILES.forEach((p, i) => ok(readFileSync(join(f.hub, p)).equals(f.okBefore[i]), `${p} byte identical after approve with "ok"`));
+          const approved = rowCells(ledgerOf(f), /^\|\s*6\s*\|/).Approved ?? '';
+          ok(!/\bApproved\b/.test(approved), `ledger line 6 not Approved (Approved cell: ${approved || 'none'})`);
         },
       },
       {
@@ -230,7 +360,15 @@ const SCENARIOS = {
           const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
           const row = ledger.split('\n').find((l) => /^\|\s*11\s*\|/.test(l)) ?? '';
           ok(/In progress/i.test(row) && !/\bProposed\b/.test(row) && !/\bApproved\b/.test(row.replace(/Approved \(/g, '')), 'ledger row 11 stays In progress after audit (not Proposed, not Approved)');
-          ok(/work so far[^|]*not approvable/i.test(row), 'ledger row 11 says "work so far, not approvable"');
+          // Values, not wording. NAV_COMMITS: one session, 20 min + 30 min = 0.833 h. Solo fee 0.833 x 2.0 x 25 = 41.67,
+          // effort fee 0.833 x 60 = 50.00. The median of three lies between them, so nearest 5 gives 40, 45 or 50.
+          const c11 = rowCells(ledger, /^\|\s*11\s*\|/);
+          const price11 = c11['Proposed price'] ?? '';
+          const sofar = nums(price11.slice(price11.search(/work so far/i)))[0] ?? NaN;
+          ok(/work so far/i.test(price11) && sofar % 5 === 0 && sofar >= 40 && sofar <= 50,
+            `ledger row 11 price cell says work so far, a multiple of 5 from 40 (solo 41.67) to 50 (effort 50.00) (${price11 || 'none'})`);
+          ok(!/\b(Proposed|Approved)\b/i.test(price11) && nums(c11.Approved ?? '').length === 0,
+            `ledger row 11 has no proposed or approved amount (Approved cell: ${c11.Approved || 'none'})`);
           ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged after auditing row 11');
         },
       },
@@ -243,6 +381,293 @@ const SCENARIOS = {
           ok(/In progress/i.test(row) && !/\bApproved\b/.test(row.replace(/Approved \(/g, '')) && /\bPending\b/.test(row), 'ledger row 11 still In progress and Pending after approve with an amount');
           ok(/in progress/i.test(run.text) && /\b(refus\w*|cannot|can't|won't|not approvable)\b/i.test(run.text), 'approve refuses and names In progress');
           ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged after the refused approve');
+        },
+      },
+      {
+        // Legacy basis: arithmetic in fixture.mjs above LEGACY_COMMITS.
+        prompt: '/price audit 7',
+        prepare(f) { const d = join(f.hub, 'docs/billing/audits'); f.auditsBefore = existsSync(d) ? readdirSync(d) : []; },
+        check(f, run, ok) {
+          const dir = join(f.hub, 'docs/billing/audits');
+          const added = (existsSync(dir) ? readdirSync(dir) : []).filter((n) => !f.auditsBefore.includes(n));
+          ok(added.length === 1, `one new audit file for row 7 (${added.join(', ') || 'none'})`);
+          const audit = added.length ? readFileSync(join(dir, added[0]), 'utf8') : '';
+          const seen = audit + '\n' + run.text;
+          const rows = audit.split('\n').filter((l) => l.startsWith('|'));
+          ok(/Basis[^\n]*legacy/i.test(audit), 'audit states Basis legacy');
+          ok(!/Measured hours/i.test(audit) && !/(^|[^\d.])2\.50*\s*(h|hrs?|hours?)\b|(^|[^\d.])150\s*min/i.test(audit) && !/\b150\.00\b/.test(audit),
+            'no commit hours: no Measured hours, no 2.5 h, no effort fee 150.00');
+          ok(/package-lock\.json/.test(audit) && /generated[\\/]prisma/.test(audit), 'excluded lockfile and generated Prisma client named');
+          ok(numsAfter(audit, /Size score/i).some(near(7)), 'size score 7.0 (3 routes 3.0 + migration 1.5 + 2 emails 1.0 + 300 lines 1.5)');
+          ok(rows.some((l) => nums(l).some(near(4.8)) && nums(l).some(near(2.4))), 'calibration row for item 1: 120 / 25 = 4.8 h, 4.8 / 2.0 = 2.4 h per point');
+          ok(rows.some((l) => nums(l).some(near(8)) && nums(l).some(near(1.6))), 'calibration row for item 2: 200 / 25 = 8 h, 8 / 5.0 = 1.6 h per point');
+          ok(numsAfter(audit, /median/i).some(near(2)), 'median 2.0 h per point ((2.4 + 1.6) / 2)');
+          ok(numsAfter(audit, /Solo hours/i).some(near(14)), 'solo hours 14.0 (7.0 x 2.0)');
+          ok(numsAfter(audit, /\bFee\b/).some(near(350)), 'fee 350.00 (14.0 x 25)');
+          ok(numsAfter(audit, /\bLow\b/).some(near(280)) && numsAfter(audit, /\bHigh\b/).some(near(420)), 'low 280.00 (7.0 x 1.6 x 25) and high 420.00 (7.0 x 2.4 x 25), already multiples of 5 so nearest 5 keeps them');
+          ok(/Confidence[^\n]*\bLow\b/i.test(audit), 'confidence Low (two anchors, under three)');
+          ok(/\bSOW\b/.test(run.text) && /\bSOW\b[^\n]*pending|pending[^\n]*\bSOW\b/i.test(audit), 'asks for the SOW date and leaves the increment pending');
+          ok(!saysApproved(audit), 'legacy audit never says Approved (negating lines ignored)');
+          const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
+          const row = ledger.split('\n').find((l) => /^\|\s*7\s*\|/.test(l)) ?? '';
+          ok(/Proposed/i.test(row) && nums(row).some(near(350)) &&/\bPending\b/.test(row) && !/\bApproved\b/.test(row.replace(/Approved \(/g, '')), 'ledger row 7 Proposed at 350.00, Approved still Pending');
+          // The rate and speed factor part of the price cell starts with the literal; anything may follow it.
+          const price7 = rowCells(ledger, LINE7)['Proposed price'] ?? '';
+          ok(/(^|·|\(|rate and speed factor:?)\s*n\/a \(legacy: contract rate/i.test(price7) && !/speed factor\s*:?\s*\d/i.test(price7),
+            `ledger row 7 rate and speed factor starts "n/a (legacy: contract rate", no speed factor number (${price7 || 'none'})`);
+          const head = ledger.split('\n').find((l) => /\|\s*SOW acknowledged\s*\|/.test(l)) ?? '';
+          const col = head.split('|').findIndex((c) => c.trim() === 'SOW acknowledged');
+          ok(col > 0 && row.split('|')[col]?.trim() === '', 'ledger row 7 SOW acknowledged cell stays empty (no SOW date given)');
+          ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged after the legacy audit');
+          ok(!/^\d/.test(seen.match(/Increment starts:?\s*([^\n|]*)/i)?.[1]?.trim() ?? ''), 'increment start not dated without a SOW date');
+        },
+      },
+    ],
+  },
+  // Lifecycle scenarios (spec section 15). Fixture and arithmetic: makeLifecycleFixture in fixture.mjs.
+  classify: {
+    about: '/price classify: a plain bug is Maintenance with no ledger line, a new capability is a New Feature with a Planned line; it asks, records classification.md, edits no scope row',
+    state: 'hub',
+    prepare(f) { makeLifecycleFixture(f.hub, f.api, 'classify'); },
+    prompt: '/price classify row 2',
+    check(f, run, ok) {
+      ok(readHub(run), 'read price/hub.md');
+      ok(readMode(run, 'classify'), 'read modes/classify.md');
+      ok(askedOrPending(f, run.said, /Duplicate trips|row 2\b/i),
+        `asked with the three options, or Decided by reads pending owner confirmation (${decidedBy(f, /Duplicate trips|row 2\b/i) || 'no cell'})`);
+      ok(/recommend/i.test(run.said), 'names a recommended answer');
+      const cls = readIf(join(f.hub, 'docs/billing/classification.md'));
+      const answer = tableCell(cls, /Duplicate trips|row 2\b/i, 'Answer') ?? '';
+      ok(/Maintenance/.test(answer) && !/New Feature/.test(answer), `classification.md records row 2 as Maintenance (${answer || 'no line'})`);
+      ok(/1\.2|Bug/i.test(tableCell(cls, /Duplicate trips|row 2\b/i, 'Reasons') ?? ''), 'reasons cite the Bug test (1.2)');
+      ok(!ledgerOf(f).split('\n').some((l) => LINE12.test(l)), 'no ledger line for a Maintenance row');
+      ok(scopeUntouched(f), 'no scope row or spec changed');
+      ok(noPush(run), 'no git push, no gh pr');
+    },
+    then: [
+      {
+        prompt: '/price classify row 3',
+        check(f, run, ok) {
+          ok(askedOrPending(f, run.said, /Trip history export|row 3\b/i),
+            `asked with the three options, or Decided by reads pending owner confirmation (${decidedBy(f, /Trip history export|row 3\b/i) || 'no cell'})`);
+          const cls = readIf(join(f.hub, 'docs/billing/classification.md'));
+          const answer = tableCell(cls, /Trip history export|row 3\b/i, 'Answer') ?? '';
+          ok(/New Feature/.test(answer), `classification.md records row 3 as New Feature (${answer || 'no line'})`);
+          ok(/Maintenance/.test(tableCell(cls, /Duplicate trips|row 2\b/i, 'Answer') ?? ''), 'row 2 line kept');
+          const ledger = ledgerOf(f);
+          ok(/measured/i.test(tableCell(ledger, LINE12, 'Basis') ?? '') && /Planned/.test(tableCell(ledger, LINE12, 'State') ?? ''),
+            'ledger line 12 (next free number after 11) with Basis measured and State Planned');
+          ok(!/\bApproved\b/.test(ledger.split('\n').find((l) => LINE12.test(l)) ?? ''), 'line 12 never says Approved');
+          ok(/quote/i.test(run.text), 'recommends /price quote');
+          ok(scopeUntouched(f), 'no scope row or spec changed');
+        },
+      },
+      {
+        // Rerun on a row that already has a ledger line: it reuses line 12, never adds a second.
+        prompt: '/price classify row 3',
+        check(f, run, ok) {
+          const lines = ledgerOf(f).split('\n').filter((l) => /^\|\s*\d+\s*\|/.test(l) && /Trip history export|row 3\b/i.test(l));
+          ok(lines.length === 1 && LINE12.test(lines[0]), `one ledger line for row 3, line 12 (${lines.length} found)`);
+          ok(!ledgerOf(f).split('\n').some((l) => /^\|\s*13\s*\|/.test(l)), 'no ledger line 13');
+        },
+      },
+    ],
+  },
+  quote: {
+    about: '/price quote: estimate 410.00, ceiling 490.00 and retainer 61.50 / 73.50 from the plan, calibrated on Appendix A; line 12 Estimated, never Approved',
+    state: 'hub',
+    prepare(f) { makeLifecycleFixture(f.hub, f.api, 'quote'); f.retainerBefore = approvedCols(f.hub); },
+    prompt: '/price quote 12',
+    check(f, run, ok) {
+      ok(readHub(run), 'read price/hub.md');
+      ok(readMode(run, 'quote'), 'read modes/quote.md');
+      const dir = join(f.hub, 'docs/billing/audits');
+      const files = (existsSync(dir) ? readdirSync(dir) : []).filter((n) => /-estimate\.md$/.test(n));
+      ok(files.length === 1, `one estimate file (${files.join(', ') || 'none'})`);
+      const est = files.length ? readFileSync(join(dir, files[0]), 'utf8') : '';
+      ok(numsAfter(est, /Size score/i).some(near(8.17)), 'size score 8.17 (2 routes 2.0 + migration 1.5 + job 1.5 + email 0.5 + screen 1.0 + 2 tests 0.5 + 234 lines 1.17)');
+      ok(est.split('\n').some((l) => nums(l).some(near(4.8)) && nums(l).some(near(2.4))) && numsAfter(est, /median/i).some(near(2)),
+        'calibration on Appendix A: item 1 4.8 h, 2.4 h per point; median 2.0');
+      ok(numsAfter(est, /Solo hours/i).some((n) => Math.abs(n - 16.34) <= 0.03 + 1e-9), 'solo hours 16.34 ± 0.03 (8.17 x 2.0; every value in range rounds to estimate 410.00)');
+      ok(numsAfter(est, /Estimate\b/).some(near(410)), 'estimate 410.00 (16.34 x 25 = 408.50, nearest 5)');
+      ok(numsAfter(est, /Ceiling/).some(near(490)) && numsAfter(est, /Ceiling/).some(near(20)), 'ceiling 490.00 (410.00 x 1.20 = 492.00, nearest 5), 20% read from rates.md');
+      const ret = nums(section(est, /^Retainer/i));
+      ok(ret.some(near(61.5)) && ret.some(near(73.5)), 'retainer 61.50 a month (15% of 410.00) and 73.50 (15% of 490.00)');
+      ok(/pending/i.test(section(est, /^Retainer/i)), 'first month pending the deployment date');
+      ok(!/\bApproved\b/.test(est), 'estimate never says Approved');
+      const ledger = ledgerOf(f);
+      const row = ledger.split('\n').find((l) => LINE12.test(l)) ?? '';
+      ok(/Estimated/.test(tableCell(ledger, LINE12, 'State') ?? ''), 'ledger line 12 State Estimated');
+      ok(nums(tableCell(ledger, LINE12, 'Estimate') ?? '').some(near(410)) && nums(tableCell(ledger, LINE12, 'Ceiling') ?? '').some(near(490)), 'ledger Estimate 410.00 and Ceiling 490.00');
+      ok(!/\bApproved\b/.test(row) && /Pending/.test(tableCell(ledger, LINE12, 'Approved') ?? ''), 'line 12 never Approved, Approved cell still Pending');
+      ok(!/Proposed/.test(tableCell(ledger, LINE12, 'Proposed price') ?? ''), 'quote writes no Proposed price');
+      ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged');
+      ok(/\bsow\b/i.test(run.text), 'offers /price sow');
+      ok(scopeUntouched(f), 'no scope row or spec changed');
+      ok(noPush(run), 'no git push, no gh pr');
+    },
+  },
+  sow: {
+    about: '/price sow: register makes SOW-001 as Draft; ack without a quote and a raise above the ceiling are refused; ack with date, channel and quote acknowledges; nothing marked signed; a legacy Retroactive SOW ack fills only SOW status and SOW acknowledged (no State); on an Approved legacy line it says to rerun approve, and the rerun keeps one Increment detail row, recreating the table when it is missing',
+    state: 'hub',
+    prepare(f) { makeLifecycleFixture(f.hub, f.api, 'sow'); f.retainerBefore = approvedCols(f.hub); },
+    prompt: '/price sow 12 register',
+    check(f, run, ok) {
+      ok(readHub(run), 'read price/hub.md');
+      ok(readMode(run, 'sow'), 'read modes/sow.md');
+      const files = sowFiles(f);
+      ok(files.length === 1 && /^SOW-001-[a-z0-9-]+\.md$/.test(files[0]), `one file SOW-001-<slug>.md (${files.join(', ') || 'none'})`);
+      const sow = sowText(f);
+      ok(/Draft/.test(sowStatus(sow)) && !/Sent|Acknowledged|Declined/.test(sowStatus(sow)), `SOW status Draft (${sowStatus(sow).trim() || 'none'})`);
+      ok(numsAfter(sow, /Estimated fee/i).some(near(410)) && numsAfter(sow, /Ceiling/).some(near(490)), 'estimate 410.00 and ceiling 490.00 from the ledger');
+      ok(numsAfter(sow, /Monthly increase/i).some(near(61.5)), 'monthly increase 61.50 (15% of 410.00)');
+      ok(/not reduced because the work was done faster/i.test(sow) && /Client's written reply/i.test(sow), 'change rule printed');
+      ok(/Done when:[^\n]*email/i.test(sow), 'Done when line from scope row 3');
+      ok(/SOW-001/.test(tableCell(ledgerOf(f), LINE12, 'SOW no.') ?? '') && /Draft/.test(tableCell(ledgerOf(f), LINE12, 'SOW status') ?? ''), 'ledger SOW no. SOW-001, SOW status Draft');
+      ok(!/\bsigned\b/i.test(sowStatus(sow)), 'not marked signed');
+      ok(scopeUntouched(f), 'no scope row or spec changed');
+    },
+    then: [
+      {
+        // Line 12 now has SOW-001 (Draft): quote is refused and changes no figure.
+        prompt: '/price quote 12',
+        prepare(f) { f.ledgerBefore = ledgerOf(f); },
+        check(f, run, ok) {
+          ok(ledgerOf(f) === f.ledgerBefore, 'ledger unchanged after quote on a line with a SOW no.');
+          ok(/\bSOW\b/.test(run.text) && /\b(decline|raise)\b/i.test(run.text) && /\b(refus\w*|cannot|can't|won't)\b/i.test(run.text), 'quote refused, names the SOW and says to decline or raise on it');
+        },
+      },
+      {
+        prompt: '/price sow 12 ack 2026-11-12 whatsapp',
+        check(f, run, ok) {
+          ok(/Draft/.test(sowStatus(sowText(f))) && /Draft/.test(tableCell(ledgerOf(f), LINE12, 'SOW status') ?? ''), 'still Draft in the SOW and the ledger');
+          ok(/\b(quote|screenshot)\b/i.test(run.text) && /\b(refus\w*|need\w*|requires?|missing|without|cannot|can't|won't)\b/i.test(run.text), 'ack without a quote is refused and names the missing quote or screenshot');
+        },
+      },
+      {
+        prompt: '/price sow 12 raise 600 "the export also needs a PDF format" 2026-11-12 whatsapp',
+        check(f, run, ok) {
+          const sow = sowText(f);
+          ok(numsAfter(sow, /Current fee/i).some(near(410)) && !numsAfter(sow, /Current fee/i).some(near(600)), 'Current fee still 410.00, not 600.00');
+          ok(nums(tableCell(ledgerOf(f), LINE12, 'Estimate') ?? '').some(near(410)), 'ledger Estimate still 410.00');
+          ok(/ceiling/i.test(run.text) && nums(run.text).some(near(490)) && /\b(refus\w*|cannot|can't|won't|not appl\w*|pending)\b/i.test(run.text), 'raise to 600 above the 490.00 ceiling is refused until the client replies');
+        },
+      },
+      {
+        // The SOW is still Draft, so this ack acknowledges the SOW, not the pending raise.
+        prompt: '/price sow 12 ack 2026-11-13 whatsapp "Yes, go ahead with the export at 410"',
+        check(f, run, ok) {
+          const sow = sowText(f);
+          const ledger = ledgerOf(f);
+          ok(/Acknowledged/.test(sowStatus(sow)), `SOW status Acknowledged (${sowStatus(sow).trim() || 'none'})`);
+          ok(/Acknowledged/.test(tableCell(ledger, LINE12, 'SOW status') ?? '') && /SOW Acknowledged/.test(tableCell(ledger, LINE12, 'State') ?? ''), 'ledger SOW status Acknowledged, State SOW Acknowledged');
+          ok(/go ahead with the export/i.test(section(sow, /^History/)) && /2026-11-13|13 Nov/i.test(section(sow, /^History/)), 'History records the date and the client quote');
+          ok(numsAfter(sow, /Current fee/i).some(near(410)), 'Current fee still 410.00 (the raise stays pending)');
+          ok(!/\bsigned\b/i.test(sowStatus(sow)) && !/\bsigned\b/i.test(ledger.split('\n').find((l) => LINE12.test(l)) ?? ''), 'nothing marked signed');
+          ok(!/\bApproved\b/.test(ledger.split('\n').find((l) => LINE12.test(l)) ?? ''), 'line 12 never Approved');
+          ok(!(tableCell(ledger, LINE12, 'SOW acknowledged') ?? ''), 'line 12 (measured) gets no SOW acknowledged date');
+          ok(scopeUntouched(f), 'no scope row or spec changed');
+        },
+      },
+      {
+        // Legacy: arithmetic in fixture.mjs above makeLegacySowFixture.
+        prompt: '/price sow 7 register',
+        prepare(f) { makeLegacySowFixture(f.hub); },
+        check(f, run, ok) {
+          const sow = sowFile(f, /^SOW-002-/);
+          ok(sowFiles(f).length === 2 && !!sow, `SOW-002 registered next to SOW-001 (${sowFiles(f).join(', ')})`);
+          ok(/Retroactive SOW[^\n]*\byes\b/i.test(sow) && !/yes\s*\|\s*no/i.test(sow), 'SOW-002 is a Retroactive SOW (yes, not the template choice)');
+          ok(/Draft/.test(sowStatus(sow)) && numsAfter(sow, /Estimated fee/i).some(near(300)), 'SOW-002 Draft with the audited fee 300.00 as its estimate');
+          const ledger = ledgerOf(f);
+          ok(/SOW-002/.test(tableCell(ledger, LINE7, 'SOW no.') ?? ''), 'ledger line 7 SOW no. SOW-002');
+          ok(dates(tableCell(ledger, LINE7, 'SOW acknowledged') ?? '').length === 0, 'line 7 SOW acknowledged still empty before the ack');
+          legacyTableAligned(f, ok);
+        },
+      },
+      {
+        prompt: '/price sow 7 ack 2026-11-20 email "Confirmed, please bill the ticket escalation work"',
+        prepare(f) { f.line7Before = rowCells(ledgerOf(f), LINE7); },
+        check(f, run, ok) {
+          const ledger = ledgerOf(f);
+          const after = rowCells(ledger, LINE7);
+          legacyTableAligned(f, ok);
+          ok(!('State' in after) && !('State' in f.line7Before), `line 7 (legacy) has no State cell before or after the ack (${after.State ?? 'none'})`);
+          const changed = otherCellsChanged(f.line7Before, after);
+          ok(changed.length === 0, `ack wrote only SOW status and SOW acknowledged on line 7 (${changed.join(', ') || 'no other cell changed'})`);
+          const signed = dates(tableCell(ledger, LINE7, 'SOW acknowledged') ?? '');
+          ok(signed.length === 1 && signed[0] === '2026-11-20', `line 7 SOW acknowledged holds the ack date 2026-11-20 (${signed.join(', ') || 'empty'})`);
+          ok(/Acknowledged/.test(sowStatus(sowFile(f, /^SOW-002-/))) && /Acknowledged/.test(tableCell(ledger, LINE7, 'SOW status') ?? ''), 'SOW-002 and ledger line 7 Acknowledged');
+          // 2026-11-20 → month 11 + 1 = 12 → 2026-12-01.
+          const start = firstOfNextMonth('2026-11-20');
+          ok(start === '2026-12-01' && dates(run.text).includes(start), `report gives the increment start ${start} (1st of the month after 2026-11-20)`);
+          ok(dates(tableCell(ledger, LINE8, 'SOW acknowledged') ?? '').length === 0, 'line 8 (legacy, never acknowledged) SOW acknowledged still empty');
+          ok(!(tableCell(ledger, LINE12, 'SOW acknowledged') ?? ''), 'line 12 (measured) SOW acknowledged untouched');
+          ok(/Acknowledged/.test(sowStatus(sowFile(f, /^SOW-001-/))) && numsAfter(sowFile(f, /^SOW-001-/), /Current fee/i).some(near(410)), 'SOW-001 unchanged (Acknowledged, 410.00)');
+          ok(!/\bApproved\b/.test((ledger.split('\n').find((l) => LINE7.test(l)) ?? '').replace(/Approved \(/g, '')) && /Pending/.test(tableCell(ledger, LINE7, 'Approved') ?? ''), 'line 7 never Approved, Approved cell still Pending');
+          ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged (approve applies the increment)');
+          ok(noPush(run), 'no git push, no gh pr');
+        },
+      },
+      {
+        // Line 8 is already Approved (pending the ack): arithmetic in fixture.mjs above makeLegacyApprovedFixture.
+        prompt: '/price sow 8 ack 2026-11-25 whatsapp "Yes, the ratings work is fine to bill"',
+        prepare(f) { makeLegacyApprovedFixture(f.hub); f.line8Before = rowCells(ledgerOf(f), LINE8); f.scheduleBefore = scheduleOf(f); },
+        check(f, run, ok) {
+          const ledger = ledgerOf(f);
+          const after = rowCells(ledger, LINE8);
+          const acked = dates(after['SOW acknowledged'] ?? '');
+          ok(acked.length === 1 && acked[0] === '2026-11-25', `line 8 SOW acknowledged holds 2026-11-25 (${acked.join(', ') || 'empty'})`);
+          ok(/Acknowledged/.test(after['SOW status'] ?? '') && /Acknowledged/.test(sowStatus(sowFile(f, /^SOW-003-/))), 'SOW-003 and ledger line 8 Acknowledged');
+          ok(!('State' in after), `line 8 (legacy) gets no State cell (${after.State ?? 'none'})`);
+          const changed = otherCellsChanged(f.line8Before, after);
+          ok(changed.length === 0, `ack wrote only SOW status and SOW acknowledged on line 8 (${changed.join(', ') || 'no other cell changed'})`);
+          ok(scheduleOf(f) === f.scheduleBefore, 'ack left retainer-schedule.md unchanged');
+          const rerun = [...run.text.matchAll(/\/price approve\s+(\S+)\s+(\d+(?:\.\d{1,2})?)/g)];
+          ok(rerun.some(([, feat, amt]) => /^(8|line)/i.test(feat) && near(200)(+amt)), `report says to run /price approve 8 200 again (${rerun.map((m) => m[0]).join('; ') || 'none'})`);
+          ok(dates(run.text).includes('2026-12-01'), 'report gives the increment start 2026-12-01 (1st of the month after 2026-11-25)');
+          ok(noPush(run), 'no git push, no gh pr');
+        },
+      },
+      {
+        // Second approve on an Approved, acknowledged legacy line: one Increment detail row, 30.00 from Dec 2026.
+        prompt: '/price approve 8 200',
+        check(f, run, ok) {
+          const sched = scheduleOf(f);
+          const detail = section(sched, /^Increment detail/i).split('\n').filter((l) => /^\|/.test(l) && /Driver ratings|^\|\s*8\b/i.test(l));
+          ok(detail.length === 1, `one Increment detail row for line 8 (${detail.length} found)`);
+          ok(detail.length > 0 && dates(detail[0]).includes('2026-12-01') && nums(detail[0]).some(near(30)), 'that row starts 2026-12-01 at 30.00 a month (15% of 200.00)');
+          const months = ['Dec 2026', 'Jan 2027', 'Feb 2027', 'Mar 2027'].map((m) => {
+            const re = new RegExp(`^\\|\\s*${m}\\s*\\|`);
+            return [m, money(tableCell(sched, re, 'Approved increments')), money(tableCell(sched, re, 'Fee'))];
+          });
+          ok(months.every(([, inc, fee]) => near(30)(inc) && near(1330)(fee)), `Dec 2026 to Mar 2027 read 30.00 and 1,330.00 (${months.map(([m, i, fe]) => `${m} ${i}/${fe}`).join(', ')})`);
+          const row = rowCells(ledgerOf(f), LINE8);
+          ok(/Approved/.test(row.Approved ?? '') && nums(row.Approved ?? '').some(near(200)), 'line 8 still Approved at 200.00');
+          ok(!('State' in row) && dates(row['SOW acknowledged'] ?? '')[0] === '2026-11-25', 'line 8 has no State cell and keeps SOW acknowledged 2026-11-25');
+          ok(/to confirm/i.test(row.Deployed ?? ''), `line 8 Deployed still "to confirm", so 30.00 from 2026-12-01 comes from the ack, not deployment (${row.Deployed || 'none'})`);
+          ok(noPush(run), 'no git push, no gh pr');
+        },
+      },
+      {
+        // The schedule has lost its Increment detail table: approve recreates it under that heading, one row for line 8.
+        prompt: '/price approve 8 200',
+        prepare(f) {
+          writeFileSync(join(f.hub, 'docs/billing/retainer-schedule.md'), scheduleOf(f).replace(/\n## Increment detail[^]*$/, '\n'));
+          git(f.hub, 'commit', '-qam', 'schedule without Increment detail');
+        },
+        check(f, run, ok) {
+          const sched = scheduleOf(f);
+          ok(/^## Increment detail\s*$/m.test(sched), 'approve created the ## Increment detail heading');
+          ok(startsOn('Dec 2026', '2026-12-01') && startsOn('December 2026', '2026-12-01') && startsOn('2026-12-01', '2026-12-01') && !startsOn('Jan 2027', '2026-12-01'),
+            'Starts helper accepts Dec 2026, December 2026 and 2026-12-01 as a 2026-12-01 start and rejects Jan 2027');
+          const faults = recreatedDetailFaults(sched);
+          ok(faults.length === 0, `recreated table has the hub header and one line 8 row: Approved fee 200.00, Increment (15%) 30.00, Increment starts Dec 2026 (${faults.join('; ') || 'all match'})`);
+          const months = ['Dec 2026', 'Mar 2027'].map((m) => {
+            const re = new RegExp(`^\\|\\s*${m}\\s*\\|`);
+            return [m, money(tableCell(sched, re, 'Approved increments')), money(tableCell(sched, re, 'Fee'))];
+          });
+          ok(months.every(([, inc, fee]) => near(30)(inc) && near(1330)(fee)), `Dec 2026 and Mar 2027 still read 30.00 and 1,330.00 (${months.map(([m, i, fe]) => `${m} ${i}/${fe}`).join(', ')})`);
+          ok(noPush(run), 'no git push, no gh pr');
         },
       },
     ],

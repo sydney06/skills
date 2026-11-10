@@ -230,8 +230,24 @@ const HOT_PATH_BUDGETS = [
   },
   {
     name: 'hub: price audit path',
-    budget: 17 * 1024, // real size ~14.5 KiB (SKILL.md + hub.md + templates/audit.md)
+    budget: 24 * 1024, // real size ~21.1 KiB; raised 20 -> 24 KiB when SKILL.md became the lifecycle router (modes, ledger states, approve's ceiling refusals)
     required: ['price/SKILL.md', 'price/hub.md', 'price/templates/audit.md'],
+  },
+  // The lifecycle modes: the router plus the one mode file (and its template) that mode reads.
+  {
+    name: 'hub: price classify path',
+    budget: 23 * 1024, // real size ~19.9 KiB
+    required: ['price/SKILL.md', 'price/hub.md', 'price/modes/classify.md'],
+  },
+  {
+    name: 'hub: price quote path',
+    budget: 24 * 1024, // real size ~20.8 KiB
+    required: ['price/SKILL.md', 'price/hub.md', 'price/modes/quote.md', 'price/templates/estimate.md'],
+  },
+  {
+    name: 'hub: price sow path',
+    budget: 25 * 1024, // real size ~21.8 KiB
+    required: ['price/SKILL.md', 'price/hub.md', 'price/modes/sow.md', 'price/templates/sow.md'],
   },
 ];
 
