@@ -21,6 +21,7 @@ There are nine. You run only the ones a change needs, in whatever order fits.
 | `document` | Writes the human facing text, a pull request body, a changelog, a release note. |
 | `sync` | Brings the context files, the scope, and the specs back in line with the code. |
 | `debug` | Finds and fixes the root cause of a bug, then hands a test to `test`. |
+| `price` | An optional billing step after `document`, hub only: audits a finished feature from the commit history and proposes its fee. |
 
 ---
 
