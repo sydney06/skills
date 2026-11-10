@@ -255,16 +255,20 @@ const SCENARIOS = {
       // Scoped to the Sessions section: ledger 7's lockfile commit is authored at 12:00 and may be listed elsewhere.
       const sessionsPart = audit.split(/^## /m).find((s) => /^Sessions\b/.test(s)) ?? '';
       const sessions = sessionsPart.split('\n').filter((l) => /^\|\s*\d+\s*\|/.test(l));
-      // Length cell: the first number followed by h, else the first number followed by min, / 60.
+      // Length cell: the LAST number followed by h, else the last number followed by min, / 60.
+      // The cell may show its working first (1.0 h + 0.5 h = 1.5 h); the result is last.
       const lenHead = sessionsPart.split('\n').find((l) => /^\|[^\n]*Length/i.test(l)) ?? '';
       const lenCol = lenHead.split('|').findIndex((c) => /Length/i.test(c));
-      const lengthHours = (l) => {
-        const cells = l.split('|');
-        const cell = cells[lenCol > 0 ? lenCol : cells.length - 2] ?? '';
-        const h = cell.match(/(?<![\d.])(\d+(?:\.\d+)?)\s*(h|hrs?|hours?)\b/i);
-        const m = cell.match(/(?<![\d.])(\d+(?:\.\d+)?)\s*min\b/i);
+      const cellHours = (cell) => {
+        const h = [...cell.matchAll(/(?<![\d.])(\d+(?:\.\d+)?)\s*(h|hrs?|hours?)\b/gi)].at(-1);
+        const m = [...cell.matchAll(/(?<![\d.])(\d+(?:\.\d+)?)\s*min\b/gi)].at(-1);
         return h ? +h[1] : m ? m[1] / 60 : NaN;
       };
+      const lengthHours = (l) => {
+        const cells = l.split('|');
+        return cellHours(cells[lenCol > 0 ? lenCol : cells.length - 2] ?? '');
+      };
+      ok(near(1.5)(cellHours('1.0 h + 0.5 h = 1.5 h')), 'length helper reads the last h number of a cell that shows its working (1.0 h + 0.5 h = 1.5 h → 1.5)');
       const lengths = sessions.map(lengthHours);
       ok(sessions.length === 2 && lengths.some(near(1.5)) && lengths.some(near(1.0)), `two sessions of 1.5 h (90 min) and 1.0 h (60 min) from author dates (${sessions.length} found: ${lengths.join(', ')} h)`);
       ok(sessions.some((l) => /15:30/.test(l)) && !sessions.some((l) => /12:00/.test(l)), 'session ends use author times (15:30), not the push time (12:00)');
