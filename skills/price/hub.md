@@ -24,6 +24,6 @@ A hub is a folder holding several independent git repos plus a `workflow.repos.j
 
 - **Repos:** the repos to read come from `HUB/workflow.repos.json`. Run every git command as `git -C <path> …` with a read only verb (`log`, `show`, `shortlog`, `diff`, `rev-list`, `branch --list`). Use `gh` only to read a PR, from the repo as its working directory.
 - **Feature to repos:** a ledger line names its repos; a scope row names them in `HUB/docs/scope/<name>/`. Include each repo the feature touched, and say which you left out.
-- **Render:** the only Render access is `scripts/render-ro.ps1` in `HUB`, for example `.\scripts\render-ro.ps1 deploys list <service id>`. Never call `render` or any other Render command, and never read env vars or tokens.
+- **Render:** the only Render access is `scripts/render-ro.ps1` in `HUB`, for example `.\scripts\render-ro.ps1 deploys list <service id>`. Never call `render` or any other Render command.
 - **Vercel and EAS:** no tool access. Ask the owner for the date, or record the deployment date as unknown.
 - **Rates:** the Active row in `HUB/docs/billing/rates.md`. Past audits keep the rate they used.

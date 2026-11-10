@@ -12,11 +12,11 @@ Write everything this skill produces, files and messages alike, in plain simple 
 
 **Hub mode:** if `workflow.repos.json` exists at the project root or in its parent folder, read `hub.md` in this skill's folder before anything else and follow it. If it exists in neither place, stop and say `/price` runs in a hub only.
 
-**Model:** run `audit` on Opus (`/model opus`); it weighs a lot of history. `approve` only edits records and runs on the default model. A session cannot pin a model for itself, so if the session is not on Opus when `audit` starts, say so once and recommend switching.
+**Model:** run `audit` on Opus (`/model opus`); `approve` runs on the default model. If the session is not on Opus when `audit` starts, say so once and recommend switching.
 
 ## What this skill does
 
-**Your role:** the estimator who prices from evidence, not from feature descriptions. Every number printed has a source and its arithmetic. You propose; the owner decides.
+**Your role:** the estimator who prices from evidence, not from feature descriptions. You propose; the owner decides.
 
 Two modes: `/price audit <feature>` measures finished work and writes a Proposed fee; `/price approve <feature> <amount>` records the owner's approval and the retainer effect. A feature is a ledger number (`audit 8`), a scope row (`audit row 101`), or a name; a name matching several ledger lines asks which.
 
@@ -25,7 +25,7 @@ Two modes: `/price audit <feature>` measures finished work and writes a Proposed
 | Action | /price | Owner |
 |---|---|---|
 | Read git history, PRs, scope rows, specs, review and verify notes across the repos | yes, read only | |
-| Read Render deploy history through `scripts/render-ro.ps1` (never any other Render call) | yes, read only | |
+| Read Render deploy history through `scripts/render-ro.ps1` | yes, read only | |
 | Create `docs/billing/audits/<feature>.md` | yes | /price |
 | Write a Proposed price into `ledger.md` and the preview into `retainer-schedule.md` (only the preview column and the "if approved" figures, never `Approved increments` or `Fee`, which change only in `approve`) | yes (`audit`) | /price |
 | Set Approved with amount, rate and dates, rebuild the retainer table | only in `approve`, only when the owner's words are in the command | /price |
@@ -46,7 +46,7 @@ Two modes: `/price audit <feature>` measures finished work and writes a Proposed
 
 ## Mode audit
 
-Each step ends in the checkable condition shown. Read `templates/audit.md` before step 7.
+Read `templates/audit.md` before step 7.
 
 1. **Resolve the feature.** Find its ledger line and every related scope row, branch, and PR. Show the list; ask the owner to confirm or correct it before measuring (recommend confirming as shown). → the owner has answered.
 2. **Collect evidence per repo, read only.** Author emails: from `git shortlog -sne`, confirm with the owner which are theirs and show the commit split per email (recommend the emails carrying the owner's name: they are the feature's real author). Commits belong to the feature by branch, PR, scope row number, or paths named in its specs and reviews. Record author dates, never push dates. A squash (merge or interactive) destroys per commit author dates: say so and use the PR's own commits. A rebase keeps author dates. Also record: files changed, lines added and removed, new tables or migrations, routes, screens, jobs, emails, socket events, tests added and the tests to code ratio; rework (fix commits, commits after review or verify, reverts); process (scope boxes ticked, specs and notes written, review findings fixed). → every repo in the feature has an evidence table.
@@ -55,7 +55,7 @@ Each step ends in the checkable condition shown. Read `templates/audit.md` befor
 5. **Propose the fee.** Print each with its arithmetic:
    - **Effort fee** = measured hours x the Active feature rate.
    - **Solo fee** = solo hours x the contract rate.
-   - **Reference fee** = the closest Appendix A items by size (the ledger lists them), adjusted by the size signals. Exclude item 5.
+   - **Reference fee** = the closest Appendix A items by size (the ledger lists them), adjusted by the size signals.
    - **Proposed fee** = the median of the three, rounded to the nearest 5, with the lowest as low and the highest as high. If (high minus low) / proposed fee is over 0.40, say why and ask which basis the owner trusts (recommend the one with the best evidence); never average a disagreement away. → three fees, proposed fee, low, high printed.
    - If `rates.md` also holds a Proposed row, print the fee at that row too and say it is not used.
 6. **Dates and retainer effect.** Deployment date: the PR merge, then the Render deploy time through `scripts/render-ro.ps1`, or the Vercel or EAS date when the owner supplies it. If it cannot be established, record it as **unknown** and say what is needed. Never guess a date. Warranty ends 14 days after deployment. The increment is 15% of the fee (Agreement 2.4b) and starts on the 1st of the month after the warranty ends, to the Term end in `retainer-schedule.md`. → monthly effect and total over the remaining term, or "pending a date".
