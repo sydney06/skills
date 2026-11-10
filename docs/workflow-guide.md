@@ -8,7 +8,7 @@ A set of skills that take a change from a rough idea to shipped, tested, and doc
 
 ## The workflows
 
-There are nine. You run only the ones a change needs, in whatever order fits.
+There are ten. You run only the ones a change needs, in whatever order fits.
 
 | Workflow | What it does |
 |---|---|
@@ -224,7 +224,7 @@ The limits matter as much as the features.
 
 ## Common questions
 
-**Do I have to run all nine?** No. You run only the ones a change needs. A tiny change can be just `develop` and then `check` in verify mode. A bug is just `debug`.
+**Do I have to run all ten?** No. You run only the ones a change needs. A tiny change can be just `develop` and then `check` in verify mode. A bug is just `debug`.
 
 **What if there is no spec yet?** If a real decision is missing, `develop` stops and offers to send you to `architect` to make it, or to build directly if you judge there is nothing to decide, or to build now and record the assumption as an `Assumed` spec. That last option keeps you moving while still writing the decision into the repository, and it flags the feature as owing ratification (`architect`) without ever blocking done.
 
