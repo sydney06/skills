@@ -109,6 +109,11 @@ const dates = (s) => [
   ...[...s.matchAll(/\b([A-Za-z]{3})[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\b/g)]
     .filter(([, mo]) => MONTHS.includes(mo.toLowerCase())).map(([, mo, d, y]) => iso(y, MONTHS.indexOf(mo.toLowerCase()) + 1, +d)),
 ];
+// Every month and year in `s` as YYYY-MM: Dec 2026, December 2026.
+const monthYears = (s) => [...s.matchAll(/\b([A-Za-z]{3})[a-z]*\.?\s+(\d{4})\b/g)]
+  .filter(([, mo]) => MONTHS.includes(mo.toLowerCase())).map(([, mo, y]) => `${y}-${String(MONTHS.indexOf(mo.toLowerCase()) + 1).padStart(2, '0')}`);
+// True when a Starts cell gives `day` (YYYY-MM-01) as a full date, or as its month and year alone.
+const startsOn = (cell, day) => (dates(cell).length ? dates(cell)[0] === day : monthYears(cell)[0] === day.slice(0, 7));
 // The 1st of the month after an ISO date: the legacy increment start.
 const firstOfNextMonth = (d) => { const [y, m] = d.split('-').map(Number); return m === 12 ? iso(y + 1, 1, 1) : iso(y, m + 1, 1); };
 const sowFile = (f, re) => { const n = sowFiles(f).find((x) => re.test(x)); return n ? readFileSync(join(f.hub, 'docs/billing/sows', n), 'utf8') : ''; };
@@ -636,8 +641,13 @@ const SCENARIOS = {
           const sched = scheduleOf(f);
           ok(/^## Increment detail\s*$/m.test(sched), 'approve created the ## Increment detail heading');
           const detail = section(sched, /^Increment detail/i).split('\n').filter((l) => /^\|/.test(l) && /Driver ratings|^\|\s*8\b/i.test(l));
-          ok(detail.length === 1 && dates(detail[0]).includes('2026-12-01') && nums(detail[0]).some(near(30)),
-            `one Increment detail row for line 8, from 2026-12-01 at 30.00 (${detail.length} found)`);
+          ok(startsOn('Dec 2026', '2026-12-01') && startsOn('December 2026', '2026-12-01') && startsOn('2026-12-01', '2026-12-01') && !startsOn('Jan 2027', '2026-12-01'),
+            'Starts helper accepts Dec 2026, December 2026 and 2026-12-01 as a 2026-12-01 start and rejects Jan 2027');
+          const cell = (col) => tableCell(section(sched, /^Increment detail/i), /Driver ratings|^\|\s*8\b/i, col) ?? '';
+          const span = monthYears(cell('Months'));
+          ok(detail.length === 1 && startsOn(cell('Starts'), '2026-12-01') && nums(cell('Monthly increment')).some(near(30)) &&
+            ['2026-12', '2027-01', '2027-02', '2027-03'].every((m) => span.includes(m)),
+            `one Increment detail row for line 8, from 2026-12-01 (or Dec 2026) at 30.00 over Dec 2026 to Mar 2027 (${detail.length} found: ${detail[0] ?? 'none'})`);
           const months = ['Dec 2026', 'Mar 2027'].map((m) => {
             const re = new RegExp(`^\\|\\s*${m}\\s*\\|`);
             return [m, money(tableCell(sched, re, 'Approved increments')), money(tableCell(sched, re, 'Fee'))];
