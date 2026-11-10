@@ -230,7 +230,7 @@ const HOT_PATH_BUDGETS = [
   },
   {
     name: 'hub: price audit path',
-    budget: 17 * 1024, // real size ~14.5 KiB (SKILL.md + hub.md + templates/audit.md)
+    budget: 20 * 1024, // real size ~17.9 KiB (SKILL.md + hub.md + templates/audit.md); +3 KiB for the legacy basis
     required: ['price/SKILL.md', 'price/hub.md', 'price/templates/audit.md'],
   },
 ];

@@ -39,3 +39,24 @@ Increment: 15% of fee = <n> a month · months to Term end: <n> · total: <n> | p
 
 ## Open items
 Client acknowledgement: outstanding. Anything missing or flagged.
+
+## Legacy variant: in place of Sessions, Rate used, Fees
+Basis: legacy, size based · weights row dated <date> · contract rate <n> (rates row <date>)
+
+## Size signals
+| Repo | Signal | Count | Weight | Points | Files |
+|---|---|---|---|---|---|
+
+Excluded: <files>. **Size score:** <n>. Built (commit dates, not effort): <first> to <last>.
+
+## Calibration (Appendix A items 1 to 4)
+| Item | Valuation | Solo hours (valuation / rate) | Score | Hours per point |
+|---|---|---|---|---|
+
+Median <n> · lowest <n> · highest <n> · not found: <items or none>.
+
+## Fee (arithmetic shown)
+Solo hours = score x median = <n>. Fee = solo hours x contract rate = <n>, nearest 5: **<n>**. Low = score x lowest x rate = <n>. High = score x highest x rate = <n>.
+Closest anchor: <item>. **Confidence:** Medium | Low (reason).
+
+Increment starts: <1st of month after the Retroactive SOW> | pending the SOW date. Deployed: information only.
