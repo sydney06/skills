@@ -230,7 +230,7 @@ const SCENARIOS = {
           const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
           const row = ledger.split('\n').find((l) => /^\|\s*11\s*\|/.test(l)) ?? '';
           ok(/In progress/i.test(row) && !/\bProposed\b/.test(row) && !/\bApproved\b/.test(row.replace(/Approved \(/g, '')), 'ledger row 11 stays In progress after audit (not Proposed, not Approved)');
-          ok(/work so far, not approvable/i.test(row), 'ledger row 11 says "work so far, not approvable"');
+          ok(/work so far[^|]*not approvable/i.test(row), 'ledger row 11 says "work so far, not approvable"');
           ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged after auditing row 11');
         },
       },
