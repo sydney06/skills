@@ -450,7 +450,7 @@ const SCENARIOS = {
       ok(numsAfter(est, /Size score/i).some(near(8.17)), 'size score 8.17 (2 routes 2.0 + migration 1.5 + job 1.5 + email 0.5 + screen 1.0 + 2 tests 0.5 + 234 lines 1.17)');
       ok(est.split('\n').some((l) => nums(l).some(near(4.8)) && nums(l).some(near(2.4))) && numsAfter(est, /median/i).some(near(2)),
         'calibration on Appendix A: item 1 4.8 h, 2.4 h per point; median 2.0');
-      ok(numsAfter(est, /Solo hours/i).some(near(16.34)), 'solo hours 16.34 (8.17 x 2.0)');
+      ok(numsAfter(est, /Solo hours/i).some((n) => Math.abs(n - 16.34) <= 0.03 + 1e-9), 'solo hours 16.34 ± 0.03 (8.17 x 2.0; every value in range rounds to estimate 410.00)');
       ok(numsAfter(est, /Estimate\b/).some(near(410)), 'estimate 410.00 (16.34 x 25 = 408.50, nearest 5)');
       ok(numsAfter(est, /Ceiling/).some(near(490)) && numsAfter(est, /Ceiling/).some(near(20)), 'ceiling 490.00 (410.00 x 1.20 = 492.00, nearest 5), 20% read from rates.md');
       const ret = nums(section(est, /^Retainer/i));
