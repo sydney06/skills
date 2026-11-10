@@ -322,7 +322,13 @@ const SCENARIOS = {
           const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
           const row = ledger.split('\n').find((l) => /^\|\s*11\s*\|/.test(l)) ?? '';
           ok(/In progress/i.test(row) && !/\bProposed\b/.test(row) && !/\bApproved\b/.test(row.replace(/Approved \(/g, '')), 'ledger row 11 stays In progress after audit (not Proposed, not Approved)');
-          ok(/work so far[^|]*not approvable/i.test(row), 'ledger row 11 says "work so far, not approvable"');
+          // Values, not wording: work so far 40.00 in the price cell, no proposed or approved amount.
+          const c11 = rowCells(ledger, /^\|\s*11\s*\|/);
+          const price11 = c11['Proposed price'] ?? '';
+          ok(/work so far/i.test(price11) && near(40)(nums(price11.slice(price11.search(/work so far/i)))[0] ?? NaN),
+            `ledger row 11 price cell says work so far 40.00 (${price11 || 'none'})`);
+          ok(!/\b(Proposed|Approved)\b/i.test(price11) && nums(c11.Approved ?? '').length === 0,
+            `ledger row 11 has no proposed or approved amount (Approved cell: ${c11.Approved || 'none'})`);
           ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged after auditing row 11');
         },
       },
@@ -365,7 +371,10 @@ const SCENARIOS = {
           const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
           const row = ledger.split('\n').find((l) => /^\|\s*7\s*\|/.test(l)) ?? '';
           ok(/Proposed/i.test(row) && nums(row).some(near(350)) &&/\bPending\b/.test(row) && !/\bApproved\b/.test(row.replace(/Approved \(/g, '')), 'ledger row 7 Proposed at 350.00, Approved still Pending');
-          ok(/n\/a \(legacy: contract rate\)/.test(row), 'ledger row 7 rate and speed factor cell says "n/a (legacy: contract rate)"');
+          // The rate and speed factor part of the price cell starts with the literal; anything may follow it.
+          const price7 = rowCells(ledger, LINE7)['Proposed price'] ?? '';
+          ok(/(^|·|\(|rate and speed factor:?)\s*n\/a \(legacy: contract rate/i.test(price7) && !/speed factor\s*:?\s*\d/i.test(price7),
+            `ledger row 7 rate and speed factor starts "n/a (legacy: contract rate", no speed factor number (${price7 || 'none'})`);
           const head = ledger.split('\n').find((l) => /\|\s*SOW acknowledged\s*\|/.test(l)) ?? '';
           const col = head.split('|').findIndex((c) => c.trim() === 'SOW acknowledged');
           ok(col > 0 && row.split('|')[col]?.trim() === '', 'ledger row 7 SOW acknowledged cell stays empty (no SOW date given)');
