@@ -56,7 +56,7 @@ Excluded: <files>. **Size score:** <n>. Built (commit dates, not effort): <first
 Median <n> · lowest <n> · highest <n> · not found: <items or none>.
 
 ## Fee (arithmetic shown)
-Solo hours = score x median = <n>. Fee = solo hours x contract rate = <n>, nearest 5: **<n>**. Low = score x lowest x rate = <n>. High = score x highest x rate = <n>.
+Solo hours = score x median = <n>. Fee = solo hours x contract rate = <n>, nearest 5: **<n>**. Low = score x lowest x rate = <n>, nearest 5: **<n>**. High = score x highest x rate = <n>, nearest 5: **<n>**.
 Closest anchor: <item>. **Confidence:** Medium | Low (reason).
 
 Increment starts: <1st of month after the Retroactive SOW> | pending the SOW date. Deployed: information only.

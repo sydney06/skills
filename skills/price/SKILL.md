@@ -69,8 +69,8 @@ Weights: the Active row of `size-weights.md`. Rate: contract rate. Commit dates 
 
 1. **Size score** = the weighted sum of the step 2 signals. → each signal x weight printed.
 2. **Calibrate** on Appendix A items 1 to 4: find their commits as in step 2, owner confirms as in step 1; leave out, and name, an item with none. Per anchor: score, solo hours = valuation / contract rate, hours per point = solo hours / score. → the table, with median, lowest and highest.
-3. **Fee.** Solo hours = score x the median. Proposed fee = solo hours x contract rate, nearest 5. Low and high: the same with the lowest and highest hours per point. Confidence **Medium** when at least three anchors were found and (high minus low) / proposed fee is 0.5 or less, else **Low**. Name the anchor closest by score. → all printed.
-4. **Step 6:** the increment starts on the 1st of the calendar month after the Retroactive SOW is signed. Ask the owner for the SOW date (recommend pending until it is signed); the retainer effect stays pending until then. The deployment date is information only. Step 7 uses the template's legacy variant. → increment start dated, or pending the SOW date.
+3. **Fee.** Solo hours = score x the median. Proposed fee = solo hours x contract rate, nearest 5. Low and high: the same with the lowest and highest hours per point, each nearest 5. Confidence **Medium** when at least three anchors were found and (high minus low) / proposed fee is 0.5 or less, else **Low**. Name the anchor closest by score. → all printed.
+4. **Step 6:** the increment starts on the 1st of the calendar month after the Retroactive SOW is signed. Ask the owner for the SOW date (recommend pending until it is signed); a date they give goes in the ledger's `SOW signed` column, else the retainer effect stays pending. The deployment date is information only. Step 7 uses the template's legacy variant, with `n/a (legacy: contract rate)` as the rate and speed factor used. → increment start dated, or pending the SOW date.
 
 ## Mode approve
 
