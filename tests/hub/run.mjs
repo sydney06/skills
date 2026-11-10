@@ -266,13 +266,17 @@ const SCENARIOS = {
           ok(/median[^\n]*(^|[^\d.])2(\.0+)?(?![\d.]*\d)/i.test(audit), 'median 2.0 h per point ((2.4 + 1.6) / 2)');
           ok(/Solo hours[^\n]*(^|[^\d.])14(\.0+)?(?![\d.]*\d)/i.test(audit), 'solo hours 14.0 (7.0 x 2.0)');
           ok(/\b350\.00\b|\*\*350\*\*/.test(audit), 'fee 350.00 (14.0 x 25)');
-          ok(/\b280(\.00)?\b/.test(audit) && /\b420(\.00)?\b/.test(audit), 'low 280.00 (7.0 x 1.6 x 25) and high 420.00 (7.0 x 2.4 x 25)');
+          ok(/\bLow\b[^\n]*\b280(\.00)?\b/.test(audit) && /\bHigh\b[^\n]*\b420(\.00)?\b/.test(audit), 'low 280.00 (7.0 x 1.6 x 25) and high 420.00 (7.0 x 2.4 x 25), already multiples of 5 so nearest 5 keeps them');
           ok(/Confidence[^\n]*\bLow\b/i.test(audit), 'confidence Low (two anchors, under three)');
           ok(/\bSOW\b/.test(run.text) && /\bSOW\b[^\n]*pending|pending[^\n]*\bSOW\b/i.test(audit), 'asks for the SOW date and leaves the increment pending');
           ok(!/\bApproved\b/.test(audit), 'legacy audit never contains the word Approved');
           const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
           const row = ledger.split('\n').find((l) => /^\|\s*7\s*\|/.test(l)) ?? '';
           ok(/Proposed/i.test(row) && /\b350\.00\b/.test(row) && /\bPending\b/.test(row) && !/\bApproved\b/.test(row.replace(/Approved \(/g, '')), 'ledger row 7 Proposed at 350.00, Approved still Pending');
+          ok(/n\/a \(legacy: contract rate\)/.test(row), 'ledger row 7 rate and speed factor cell says "n/a (legacy: contract rate)"');
+          const head = ledger.split('\n').find((l) => /\|\s*SOW signed\s*\|/.test(l)) ?? '';
+          const col = head.split('|').findIndex((c) => c.trim() === 'SOW signed');
+          ok(col > 0 && row.split('|')[col]?.trim() === '', 'ledger row 7 SOW signed cell stays empty (no SOW date given)');
           ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged after the legacy audit');
           ok(!/^\d/.test(seen.match(/Increment starts:?\s*([^\n|]*)/i)?.[1]?.trim() ?? ''), 'increment start not dated without a SOW date');
         },

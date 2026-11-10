@@ -316,14 +316,14 @@ const NAV_COMMITS = [
 ];
 
 // Legacy fixture (spec section 14). Weights as in size-weights.md below: route 1.0,
-// migration 1.5, email 0.5, 0.5 per 100 lines in any non excluded file (SQL and HTML files are one line
-// each, so even a reading that skips them moves no fee past rounding). Every file's
-// line count is fixed, so each score is exact:
+// migration 1.5, email 0.5, 0.5 per 100 lines of source and template files (each HTML email is one line;
+// a migration's SQL counts as the migration, not as lines, so a reading that counts it moves no fee past
+// rounding). Every file's line count is fixed, so each score is exact:
 //   anchor 1 (120): 1 route + 1 email + 100 lines = 1.0 + 0.5 + 0.5 = 2.0; 120 / 25 = 4.8 h; 4.8 / 2.0 = 2.4 h/pt
 //   anchor 2 (200): 2 routes + 1 migration + 1 email + 200 lines = 2.0 + 1.5 + 0.5 + 1.0 = 5.0; 200 / 25 = 8 h; 1.6 h/pt
 //   ledger 7: 3 routes + 1 migration + 2 emails + 300 lines = 3.0 + 1.5 + 1.0 + 1.5 = 7.0
 // Median (2.4 + 1.6) / 2 = 2.0 h/pt. Solo hours 7.0 x 2.0 = 14.0; fee 14.0 x 25 = 350.00.
-// Low 7.0 x 1.6 x 25 = 280.00; high 7.0 x 2.4 x 25 = 420.00. Spread (420 - 280) / 350 = 0.4, but only
+// Low 7.0 x 1.6 x 25 = 280.00; high 7.0 x 2.4 x 25 = 420.00 (both already multiples of 5, so nearest 5 keeps them). Spread (420 - 280) / 350 = 0.4, but only
 // two anchors (items 3 and 4 have no commits), so confidence Low. Closest anchor by score: item 2.
 // Excluded, and they would move the fee if counted: package-lock.json (400 lines, +2.0 points) and the
 // generated Prisma client (500 lines, +2.5). Ledger 7's five commits sit in 10:00 to 12:00 on 12 Oct 2026:
@@ -339,7 +339,7 @@ const LEGACY_COMMITS = [
     'prisma/migrations/20260814_wait_fee/migration.sql': lines(1, ['CREATE TABLE "WaitFee" (id SERIAL PRIMARY KEY, ride_id INT, cents INT);']) }],
   ['2026-08-14T10:00:00', 'feat: wait fee routes and timer (appendix A 2)', {
     'src/waitfee/routes.js': lines(40, [route('/rides/:id/wait/start'), route('/rides/:id/wait/stop')]),
-    'src/waitfee/timer.js': lines(158) }],
+    'src/waitfee/timer.js': lines(159) }],
   ['2026-08-14T11:00:00', 'feat: wait fee receipt email (appendix A 2)', {
     'emails/wait-fee-receipt.html': lines(1, ['<p>A wait fee was added to your ride.</p>']) }],
   ['2026-10-12T10:00:00', 'feat: ticket escalation schema (ledger 7)', {
@@ -351,7 +351,7 @@ const LEGACY_COMMITS = [
     'emails/ticket-escalated.html': lines(1, ['<p>A ticket was escalated to your tier.</p>']),
     'emails/ticket-resolved.html': lines(1, ['<p>Your ticket was resolved.</p>']) }],
   ['2026-10-12T11:30:00', 'feat: escalation service (ledger 7)', {
-    'src/tickets/escalation.js': lines(267) }],
+    'src/tickets/escalation.js': lines(268) }],
   ['2026-10-12T12:00:00', 'chore: lockfile (ledger 7)', {
     'package-lock.json': lines(400, ['{ "lockfileVersion": 3 }']) }],
 ];
@@ -400,16 +400,16 @@ Status key: Proposed (suggested, waiting) · Approved (the owner wrote "approved
 
 ## 2. Completed features, not yet paid
 
-| # | Feature | Repos | Basis | Proposed price | Approved | Deployed | Warranty ends | Increment starts |
-|---|---|---|---|---|---|---|---|---|
-| 6 | Trip count | api | measured | **100.00** | Pending | to confirm | | |
-| 7 | Support ticket escalation | api | legacy (size based) | **300.00** | Pending | to confirm | | |
+| # | Feature | Repos | Basis | Proposed price | Approved | Deployed | Warranty ends | SOW signed | Increment starts |
+|---|---|---|---|---|---|---|---|---|---|
+| 6 | Trip count | api | measured | **100.00** | Pending | to confirm | | | |
+| 7 | Support ticket escalation | api | legacy (size based) | **300.00** | Pending | to confirm | | | |
 
 ## 3. In progress
 
-| # | Feature | Repos | Basis | Proposed price | Approved | Deployed | Warranty ends | Increment starts |
-|---|---|---|---|---|---|---|---|---|
-| 11 | Navigation | api | measured | In progress | Pending | | | |
+| # | Feature | Repos | Basis | Proposed price | Approved | Deployed | Warranty ends | SOW signed | Increment starts |
+|---|---|---|---|---|---|---|---|---|---|
+| 11 | Navigation | api | measured | In progress | Pending | | | | |
 `);
   write(join(hub, 'docs/billing/size-weights.md'), `
 # Size weights
@@ -428,7 +428,7 @@ Used by /price audit for a feature with Basis legacy.
 | Background job or cron | 1.5 | each |
 | Socket event | 0.5 | each |
 | Test file added | 0.25 | each |
-| Hand written source lines | 0.5 | per 100 lines added in any file not excluded (code, SQL and templates alike) |
+| Hand written source lines | 0.5 | per 100 lines, counted proportionally (lines / 100 x 0.5), added or changed lines in source and template files, after excluding generated and vendored files. A migration's SQL counts as the migration, not as lines |
 
 ## Excluded from the count
 
