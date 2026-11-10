@@ -192,6 +192,7 @@ const SCENARIOS = {
       ok(/reference/i.test(seen), 'reference fee printed');
       const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
       const row = ledger.split('\n').find((l) => /^\|\s*6\s*\|/.test(l)) ?? '';
+      ok(!/\bApproved\b/.test(audit), 'audit file never contains the word Approved');
       ok(/Proposed/i.test(row), 'ledger row 6 says Proposed');
       ok(!/\bApproved\b/.test(row.replace(/Approved \(/g, '')), 'ledger row 6 never says Approved');
       ok(/\bPending\b/.test(row), 'Approved column stays Pending');
