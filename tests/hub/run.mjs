@@ -14,7 +14,7 @@ import { join, dirname, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { buildFixture, installSkills, addGatePrefs, makeUncommittedChanges, makeFeatureBranches, makePriceFixture, makeLifecycleFixture, makeLegacySowFixture, git } from './fixture.mjs';
+import { buildFixture, installSkills, addGatePrefs, makeUncommittedChanges, makeFeatureBranches, makePriceFixture, makeLifecycleFixture, makeLegacySowFixture, makeLegacyApprovedFixture, git } from './fixture.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -107,6 +107,22 @@ const dates = (s) => [
 const firstOfNextMonth = (d) => { const [y, m] = d.split('-').map(Number); return m === 12 ? iso(y + 1, 1, 1) : iso(y, m + 1, 1); };
 const sowFile = (f, re) => { const n = sowFiles(f).find((x) => re.test(x)); return n ? readFileSync(join(f.hub, 'docs/billing/sows', n), 'utf8') : ''; };
 const ledgerOf = (f) => readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
+const scheduleOf = (f) => readFileSync(join(f.hub, 'docs/billing/retainer-schedule.md'), 'utf8').replace(/\r\n/g, '\n');
+// The first table row matching `rowRe` as { header: cell }, read against its own table's header.
+const rowCells = (text, rowRe) => {
+  const ls = text.split('\n');
+  const i = ls.findIndex((l) => l.startsWith('|') && rowRe.test(l));
+  if (i < 0) return {};
+  let h = i; while (h > 0 && ls[h - 1].startsWith('|')) h--;
+  const cells = (l) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+  const row = cells(ls[i]);
+  return Object.fromEntries(cells(ls[h]).map((c, k) => [c, row[k] ?? '']));
+};
+// Cells other than SOW status and SOW acknowledged that differ between two rowCells results.
+const otherCellsChanged = (before, after) => [...new Set([...Object.keys(before), ...Object.keys(after)])]
+  .filter((c) => !['SOW status', 'SOW acknowledged'].includes(c) && (before[c] ?? '') !== (after[c] ?? ''));
+// A money cell ("1,330.00", "**30.00**") as a number.
+const money = (c) => parseFloat(String(c ?? '').replace(/[*,\s$]|USD/gi, ''));
 const scopeUntouched = (f) => git(f.hub, 'status', '--porcelain', 'docs/scope', 'docs/specs') === '';
 const noPush = (run) => !bashCmds(run).some((c) => /git\s+(-C\s+\S+\s+)?push\b|gh\s+pr\s+(create|edit|merge)\b/.test(c));
 const sowFiles = (f) => { const d = join(f.hub, 'docs/billing/sows'); return existsSync(d) ? readdirSync(d) : []; };
@@ -420,7 +436,7 @@ const SCENARIOS = {
     },
   },
   sow: {
-    about: '/price sow: register makes SOW-001 as Draft; ack without a quote and a raise above the ceiling are refused; ack with date, channel and quote acknowledges; nothing marked signed; a legacy Retroactive SOW ack fills SOW acknowledged with the ack date, other lines keep it empty',
+    about: '/price sow: register makes SOW-001 as Draft; ack without a quote and a raise above the ceiling are refused; ack with date, channel and quote acknowledges; nothing marked signed; a legacy Retroactive SOW ack fills only SOW status and SOW acknowledged (no State); on an Approved legacy line it says to rerun approve, and the rerun keeps one Increment detail row',
     state: 'hub',
     prepare(f) { makeLifecycleFixture(f.hub, f.api, 'sow'); f.retainerBefore = approvedCols(f.hub); },
     prompt: '/price sow 12 register',
@@ -488,8 +504,13 @@ const SCENARIOS = {
       },
       {
         prompt: '/price sow 7 ack 2026-11-20 email "Confirmed, please bill the ticket escalation work"',
+        prepare(f) { f.line7Before = rowCells(ledgerOf(f), LINE7); },
         check(f, run, ok) {
           const ledger = ledgerOf(f);
+          const after = rowCells(ledger, LINE7);
+          ok(!('State' in after) && !('State' in f.line7Before), `line 7 (legacy) has no State cell before or after the ack (${after.State ?? 'none'})`);
+          const changed = otherCellsChanged(f.line7Before, after);
+          ok(changed.length === 0, `ack wrote only SOW status and SOW acknowledged on line 7 (${changed.join(', ') || 'no other cell changed'})`);
           const signed = dates(tableCell(ledger, LINE7, 'SOW acknowledged') ?? '');
           ok(signed.length === 1 && signed[0] === '2026-11-20', `line 7 SOW acknowledged holds the ack date 2026-11-20 (${signed.join(', ') || 'empty'})`);
           ok(/Acknowledged/.test(sowStatus(sowFile(f, /^SOW-002-/))) && /Acknowledged/.test(tableCell(ledger, LINE7, 'SOW status') ?? ''), 'SOW-002 and ledger line 7 Acknowledged');
@@ -501,6 +522,45 @@ const SCENARIOS = {
           ok(/Acknowledged/.test(sowStatus(sowFile(f, /^SOW-001-/))) && numsAfter(sowFile(f, /^SOW-001-/), /Current fee/i).some(near(410)), 'SOW-001 unchanged (Acknowledged, 410.00)');
           ok(!/\bApproved\b/.test((ledger.split('\n').find((l) => LINE7.test(l)) ?? '').replace(/Approved \(/g, '')) && /Pending/.test(tableCell(ledger, LINE7, 'Approved') ?? ''), 'line 7 never Approved, Approved cell still Pending');
           ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged (approve applies the increment)');
+          ok(noPush(run), 'no git push, no gh pr');
+        },
+      },
+      {
+        // Line 8 is already Approved (pending the ack): arithmetic in fixture.mjs above makeLegacyApprovedFixture.
+        prompt: '/price sow 8 ack 2026-11-25 whatsapp "Yes, the ratings work is fine to bill"',
+        prepare(f) { makeLegacyApprovedFixture(f.hub); f.line8Before = rowCells(ledgerOf(f), LINE8); f.scheduleBefore = scheduleOf(f); },
+        check(f, run, ok) {
+          const ledger = ledgerOf(f);
+          const after = rowCells(ledger, LINE8);
+          const acked = dates(after['SOW acknowledged'] ?? '');
+          ok(acked.length === 1 && acked[0] === '2026-11-25', `line 8 SOW acknowledged holds 2026-11-25 (${acked.join(', ') || 'empty'})`);
+          ok(/Acknowledged/.test(after['SOW status'] ?? '') && /Acknowledged/.test(sowStatus(sowFile(f, /^SOW-003-/))), 'SOW-003 and ledger line 8 Acknowledged');
+          ok(!('State' in after), `line 8 (legacy) gets no State cell (${after.State ?? 'none'})`);
+          const changed = otherCellsChanged(f.line8Before, after);
+          ok(changed.length === 0, `ack wrote only SOW status and SOW acknowledged on line 8 (${changed.join(', ') || 'no other cell changed'})`);
+          ok(scheduleOf(f) === f.scheduleBefore, 'ack left retainer-schedule.md unchanged');
+          const rerun = [...run.text.matchAll(/\/price approve\s+(\S+)\s+(\d+(?:\.\d{1,2})?)/g)];
+          ok(rerun.some(([, feat, amt]) => /^(8|line)/i.test(feat) && near(200)(+amt)), `report says to run /price approve 8 200 again (${rerun.map((m) => m[0]).join('; ') || 'none'})`);
+          ok(dates(run.text).includes('2026-12-01'), 'report gives the increment start 2026-12-01 (1st of the month after 2026-11-25)');
+          ok(noPush(run), 'no git push, no gh pr');
+        },
+      },
+      {
+        // Second approve on an Approved, acknowledged legacy line: one Increment detail row, 30.00 from Dec 2026.
+        prompt: '/price approve 8 200',
+        check(f, run, ok) {
+          const sched = scheduleOf(f);
+          const detail = section(sched, /^Increment detail/i).split('\n').filter((l) => /^\|/.test(l) && /Driver ratings|^\|\s*8\b/i.test(l));
+          ok(detail.length === 1, `one Increment detail row for line 8 (${detail.length} found)`);
+          ok(detail.length > 0 && dates(detail[0]).includes('2026-12-01') && nums(detail[0]).some(near(30)), 'that row starts 2026-12-01 at 30.00 a month (15% of 200.00)');
+          const months = ['Dec 2026', 'Jan 2027', 'Feb 2027', 'Mar 2027'].map((m) => {
+            const re = new RegExp(`^\\|\\s*${m}\\s*\\|`);
+            return [m, money(tableCell(sched, re, 'Approved increments')), money(tableCell(sched, re, 'Fee'))];
+          });
+          ok(months.every(([, inc, fee]) => near(30)(inc) && near(1330)(fee)), `Dec 2026 to Mar 2027 read 30.00 and 1,330.00 (${months.map(([m, i, fe]) => `${m} ${i}/${fe}`).join(', ')})`);
+          const row = rowCells(ledgerOf(f), LINE8);
+          ok(/Approved/.test(row.Approved ?? '') && nums(row.Approved ?? '').some(near(200)), 'line 8 still Approved at 200.00');
+          ok(!('State' in row) && dates(row['SOW acknowledged'] ?? '')[0] === '2026-11-25', 'line 8 has no State cell and keeps SOW acknowledged 2026-11-25');
           ok(noPush(run), 'no git push, no gh pr');
         },
       },

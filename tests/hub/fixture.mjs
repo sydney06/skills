@@ -445,6 +445,12 @@ The increment is 15% of the approved fee and starts on the 1st of the month afte
 | Jan 2027 | 1,300.00 | 0.00 | 1,300.00 | |
 | Feb 2027 | 1,300.00 | 0.00 | 1,300.00 | |
 | Mar 2027 | 1,300.00 | 0.00 | 1,300.00 | |
+
+## Increment detail
+
+| Feature | Approved fee | Increment (15%) | Deployed | Warranty ends | Increment starts |
+|---|---|---|---|---|---|
+| (none approved yet) | | | | | |
 `);
   commitAll(hub, 'billing fixture');
 }
@@ -558,4 +564,65 @@ export function makeLegacySowFixture(hub) {
 Ledger line 7 · Basis: legacy, size based · status **Proposed**. Size score 7.0, solo hours 14.0. Proposed fee **300.00** (owner's figure), low 280.00, high 420.00. Increment start: pending the SOW acknowledgement.
 `);
   commitAll(hub, 'legacy sow fixture');
+}
+
+// Set `cells` ({ column: value }) on the first table row matching `rowRe`, adding any missing column to
+// that table (empty for its other rows). The agent may have rebuilt the table, so cells go by header.
+export function setCells(text, rowRe, cells) {
+  const ls = text.split('\n');
+  const i = ls.findIndex((l) => l.startsWith('|') && rowRe.test(l));
+  if (i < 0) throw new Error(`no row ${rowRe}`);
+  let h = i; while (h > 0 && ls[h - 1].startsWith('|')) h--;
+  let e = i; while (e + 1 < ls.length && ls[e + 1].startsWith('|')) e++;
+  const split = (l) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+  const head = split(ls[h]);
+  for (const col of Object.keys(cells)) if (!head.includes(col)) head.push(col);
+  for (let k = h; k <= e; k++) {
+    const row = split(ls[k]);
+    while (row.length < head.length) row.push(k === h + 1 ? '---' : '');
+    if (k === h) row.splice(0, row.length, ...head);
+    if (k === i) for (const [col, v] of Object.entries(cells)) row[head.indexOf(col)] = v;
+    ls[k] = `| ${row.join(' | ')} |`;
+  }
+  return ls.join('\n');
+}
+
+// Legacy line 8 already Approved before its Retroactive SOW was acknowledged (spec 15, mode approve):
+// approved at 200.00 with the retainer effect pending the acknowledgement, SOW-003 Sent, and its one
+// Increment detail row pending. Acknowledged 2026-11-25 → the increment starts 2026-12-01 at
+// 200.00 x 0.15 = 30.00 a month, so Dec 2026 to Mar 2027 read 30.00 and 1,330.00 once approve reruns.
+export function makeLegacyApprovedFixture(hub) {
+  const ledgerPath = join(hub, 'docs/billing/ledger.md');
+  write(ledgerPath, setCells(readFileSync(ledgerPath, 'utf8'), /^\|\s*8\s*\|/, {
+    Approved: 'Approved **200.00** · 2026-11-15 · n/a (legacy: contract rate) · the owner, in chat: "approved 200"',
+    'SOW no.': 'SOW-003',
+    'SOW status': 'Sent',
+    'Increment starts': 'pending the SOW acknowledgement',
+  }));
+  write(join(hub, 'docs/billing/audits/driver-ratings.md'), `
+# Audit: Driver ratings
+
+Ledger line 8 · Basis: legacy, size based. Size score 5.0, solo hours 10.0. Proposed fee **200.00** (owner's figure), low 160.00, high 240.00. Increment start: pending the SOW acknowledgement.
+`);
+  write(join(hub, 'docs/billing/sows/SOW-003-driver-ratings.md'), `
+# SOW-003: Driver ratings
+
+Status: Sent · Retroactive SOW (Agreement 1.3): yes
+Ledger line 8 · registered 2026-11-15 · estimate: audits/driver-ratings.md
+
+## Fee
+Estimated fee: 200.00 USD · Ceiling: n/a (work delivered)
+Current fee: 200.00 USD
+Monthly increase: 15% of the fee, 30.00 USD a month (Agreement 2.4b).
+
+## History
+| Date | Action | Amount | Channel | Evidence or reason |
+|---|---|---|---|---|
+| 2026-11-15 | register | 200.00 | | Retroactive SOW from the audit |
+| 2026-11-16 | sent | 200.00 | WhatsApp | |
+`);
+  const schedPath = join(hub, 'docs/billing/retainer-schedule.md');
+  write(schedPath, readFileSync(schedPath, 'utf8').replace(/^\| \(none approved yet\) \|.*$/m,
+    '| 8 Driver ratings | 200.00 | 30.00 | to confirm | n/a (legacy) | pending the SOW acknowledgement |'));
+  commitAll(hub, 'legacy line 8 approved before its SOW ack');
 }
