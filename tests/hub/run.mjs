@@ -178,17 +178,17 @@ const SCENARIOS = {
       ok(files.length === 1, `one audit file written (${files.join(', ') || 'none'})`);
       const audit = files.length ? readFileSync(join(dir, files[0]), 'utf8') : '';
       ok(/2026-10-01|1 Oct(ober)? 2026|Oct(ober)? 1,? 2026/.test(audit) && !/2027-01-20|20 Jan(uary)? 2027/.test(audit), 'sessions use author dates, not push dates');
-      ok(/\b2\.5\b/.test(audit) && /\b2 sessions\b|two sessions/i.test(audit + run.text) || /\b2\.5\b/.test(audit), 'measured hours 2.5 (two sessions)');
+      ok(/\b2\.5\b/.test(audit), 'measured hours 2.5 in the audit file');
       const seen = audit + '\n' + run.text;
       ok(/\b150\.00\b/.test(seen), 'effort fee 150.00 printed (2.5 h x 60)');
       ok(/\b156\.25\b/.test(seen), 'solo fee 156.25 printed (6.25 h x 25)');
       ok(/reference/i.test(seen), 'reference fee printed');
       const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
       const row = ledger.split('\n').find((l) => /^\|\s*6\s*\|/.test(l)) ?? '';
-      ok(/Proposed/i.test(row) || /Proposed/i.test(readFileSync(join(dir, files[0] ?? ''), 'utf8')), 'feature 6 is Proposed');
+      ok(/Proposed/i.test(row) || /Proposed/i.test(audit), 'feature 6 is Proposed');
       ok(!/\bApproved\b/.test(row.replace(/Approved \(/g, '')), 'ledger row 6 never says Approved');
       ok(/\bPending\b/.test(row), 'Approved column stays Pending');
-      ok(git(f.hub, 'diff', 'HEAD', '--', 'docs/billing/rates.md') === '' && !/rates\.md/.test(git(f.hub, 'log', '--name-only', '--format=', 'HEAD~1..HEAD')), 'rates.md untouched');
+      ok(git(f.hub, 'status', '--porcelain', 'docs/billing/rates.md') === '' && git(f.hub, 'log', '--oneline', '--', 'docs/billing/rates.md').split('\n').length === 1, 'rates.md untouched');
       ok(!/\b(5|five)\b[^\n]*shift scheduling[^\n]*\b(700|included)/i.test(audit), 'item 5 not counted');
       ok(!bashCmds(run).some((c) => /git\s+(-C\s+\S+\s+)?push|gh\s+pr/.test(c)), 'no push, no gh pr');
     },
