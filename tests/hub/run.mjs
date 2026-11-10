@@ -182,11 +182,13 @@ const SCENARIOS = {
       ok(files.length === 1, `one audit file written (${files.join(', ') || 'none'})`);
       const audit = files.length ? readFileSync(join(dir, files[0]), 'utf8') : '';
       // Only author dates give two sessions of 1.5 h and 1.0 h ending 15:30; the push time is 12:00.
-      const sessions = audit.split('\n').filter((l) => /^\|\s*\d+\s*\|/.test(l));
+      // Scoped to the Sessions section: ledger 7's lockfile commit is authored at 12:00 and may be listed elsewhere.
+      const sessionsPart = audit.split(/^## /m).find((s) => /^Sessions\b/.test(s)) ?? '';
+      const sessions = sessionsPart.split('\n').filter((l) => /^\|\s*\d+\s*\|/.test(l));
       const is90 = (l) => /(^|[^\d.])1\.5\s*(h|hr|hrs|hours?)\b|(^|[^\d.])90\s*min/i.test(l);
       const is60 = (l) => /(^|[^\d.])1(\.0+)?\s*(h|hr|hrs|hours?)\b|(^|[^\d.])60\s*min/i.test(l);
       ok(sessions.length === 2 && sessions.some(is90) && sessions.some(is60), `two sessions of 1.5 h (90 min) and 1.0 h (60 min) from author dates (${sessions.length} found)`);
-      ok(/15:30/.test(audit) && !/12:00/.test(audit), 'session ends use author times (15:30), not the push time (12:00)');
+      ok(sessions.some((l) => /15:30/.test(l)) && !sessions.some((l) => /12:00/.test(l)), 'session ends use author times (15:30), not the push time (12:00)');
       ok(/Measured hours[^\n]*((^|[^\d.])2\.50*(?![\d.]*\d)|(^|[^\d.])150\s*min)/i.test(audit), 'measured hours 2.5 (or 150 min) on the Measured hours line');
       const seen = audit + '\n' + run.text;
       ok(/\b150\.00\b/.test(seen), 'effort fee 150.00 printed (2.5 h x 60)');
