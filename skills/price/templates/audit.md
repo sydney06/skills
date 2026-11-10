@@ -32,6 +32,7 @@ Rates row dated <date>: feature rate <n>, contract rate <n>, speed factor <n>. P
 
 **Proposed fee:** <median, nearest 5> · **Low:** <n> · **High:** <n>
 Spread over 40%: no | yes, why, and the basis the owner chose.
+With an Estimate: fee = SOW Current fee <n>, unchanged by the hours · effective rate = fee / measured hours = <n> (information only) · effort fee vs Ceiling <n>: within | above (a raise needs the client's reply).
 
 ## Dates and retainer effect
 Deployed: <date and source> | unknown (needed: <what>). Warranty ends: <date>. Increment starts: <1st of month>.
