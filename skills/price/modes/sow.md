@@ -1,0 +1,11 @@
+# /price sow
+
+`/price sow <feature> <action>`, one action per run. The SOW is `docs/billing/sows/SOW-<nnn>-<slug>.md`. Every action adds a History line; above History it changes only Status and Current fee. Never contact the client, never mark anything signed, never ask for a signature.
+
+- **register.** Refuse when the line already has a SOW no., or has neither an Estimate nor (legacy) an audited Proposed fee (recommend `/price quote`). Number: the highest `SOW-<nnn>` in `docs/billing/sows/` plus 1, `SOW-001` when there is none. Fill `templates/sow.md`: parties from `docs/billing/README.md` (missing → `to fill`, Heads up), the scope summary and Done when lines as the scope row writes them, deliverables per repo, Estimate and Ceiling from the ledger line, Status **Draft**. Legacy line: a Retroactive SOW, the audited Proposed fee as its Estimate, Ceiling `n/a (work delivered)`. Ledger: SOW no., SOW status `Draft`. → the file exists with Status Draft.
+- **sent `<date> <channel>`.** Channel is WhatsApp or email, else refuse. Status and ledger SOW status `Sent`, State `SOW Sent`. → History line.
+- **ack `<date> <channel> "<quote or path>"`.** Refuse unless it has a date, a channel (WhatsApp or email), and either a short quote of the client's words or a path to a screenshot or email file that exists. Draft or Sent SOW → Status and ledger SOW status `Acknowledged`, State `SOW Acknowledged`. Acknowledged SOW with a pending raise → that raise becomes Acknowledged and Current fee its amount. → History line with the evidence.
+- **raise `<amount> "<reason>" <date told> <channel>`.** Refuse an amount at or below Current fee (the fee never falls because the work was fast), or one missing the reason or the date and channel the client was told. Up to the Ceiling → Current fee = the amount. Above the Ceiling → refuse to apply it, add a History line `raise to <amount> pending the client's reply`, leave Current fee unchanged, and say the next step is `ack` with that reply. → Current fee changed, or a pending line and an unchanged fee.
+- **decline.** Status and ledger SOW status `Declined`; the feature is not billable. → History line.
+
+Report: Headline (SOW number, action, Status, Current fee). Next: the next action of register, sent, ack, or `/develop` once Acknowledged.
