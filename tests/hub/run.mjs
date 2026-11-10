@@ -85,11 +85,13 @@ const readMode = (run, mode) => run.tools.some((t) =>
   (['Bash', 'PowerShell'].includes(t.name) && new RegExp(`modes[\\\\/]${mode}\\.md`).test(t.input?.command ?? '')));
 const section = (text, re) => text.split(/^## /m).find((s) => re.test(s)) ?? '';
 const readIf = (path) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
-// The harness is unattended, so the agent may state its pick instead of asking: accept the three options
-// printed, or one recommended answer named with a note that the owner must confirm it.
+// The harness is unattended, so nobody answers: accept the three options printed, or the row's
+// classification.md Decided by cell reading pending owner confirmation (never a bare Owner).
 const ANSWERS = ['New Feature', 'Maintenance', 'Needs discussion'];
-const askedOrPicked = (said) => ANSWERS.every((a) => said.includes(a)) ||
-  (/recommend/i.test(said) && /confirm/i.test(said) && ANSWERS.some((a) => said.includes(a)));
+const classOf = (f) => readIf(join(f.hub, 'docs/billing/classification.md'));
+const decidedBy = (f, rowRe) => tableCell(classOf(f), rowRe, 'Decided by') ?? '';
+const askedOrPending = (f, said, rowRe) => ANSWERS.every((a) => said.includes(a)) ||
+  /pending owner confirmation/i.test(decidedBy(f, rowRe));
 const LINE12 = /^\|\s*12\s*\|/;
 const LINE7 = /^\|\s*7\s*\|/;
 const LINE8 = /^\|\s*8\s*\|/;
@@ -372,8 +374,9 @@ const SCENARIOS = {
     check(f, run, ok) {
       ok(readHub(run), 'read price/hub.md');
       ok(readMode(run, 'classify'), 'read modes/classify.md');
-      ok(askedOrPicked(run.said) && /recommend/i.test(run.said),
-        'asked with the three options, or stated one recommended answer for the owner to confirm');
+      ok(askedOrPending(f, run.said, /Duplicate trips|row 2\b/i),
+        `asked with the three options, or Decided by reads pending owner confirmation (${decidedBy(f, /Duplicate trips|row 2\b/i) || 'no cell'})`);
+      ok(/recommend/i.test(run.said), 'names a recommended answer');
       const cls = readIf(join(f.hub, 'docs/billing/classification.md'));
       const answer = tableCell(cls, /Duplicate trips|row 2\b/i, 'Answer') ?? '';
       ok(/Maintenance/.test(answer) && !/New Feature/.test(answer), `classification.md records row 2 as Maintenance (${answer || 'no line'})`);
@@ -386,7 +389,8 @@ const SCENARIOS = {
       {
         prompt: '/price classify row 3',
         check(f, run, ok) {
-          ok(askedOrPicked(run.said), 'asked with the three options, or stated one recommended answer for the owner to confirm');
+          ok(askedOrPending(f, run.said, /Trip history export|row 3\b/i),
+            `asked with the three options, or Decided by reads pending owner confirmation (${decidedBy(f, /Trip history export|row 3\b/i) || 'no cell'})`);
           const cls = readIf(join(f.hub, 'docs/billing/classification.md'));
           const answer = tableCell(cls, /Trip history export|row 3\b/i, 'Answer') ?? '';
           ok(/New Feature/.test(answer), `classification.md records row 3 as New Feature (${answer || 'no line'})`);
@@ -436,7 +440,7 @@ const SCENARIOS = {
     },
   },
   sow: {
-    about: '/price sow: register makes SOW-001 as Draft; ack without a quote and a raise above the ceiling are refused; ack with date, channel and quote acknowledges; nothing marked signed; a legacy Retroactive SOW ack fills only SOW status and SOW acknowledged (no State); on an Approved legacy line it says to rerun approve, and the rerun keeps one Increment detail row',
+    about: '/price sow: register makes SOW-001 as Draft; ack without a quote and a raise above the ceiling are refused; ack with date, channel and quote acknowledges; nothing marked signed; a legacy Retroactive SOW ack fills only SOW status and SOW acknowledged (no State); on an Approved legacy line it says to rerun approve, and the rerun keeps one Increment detail row, recreating the table when it is missing',
     state: 'hub',
     prepare(f) { makeLifecycleFixture(f.hub, f.api, 'sow'); f.retainerBefore = approvedCols(f.hub); },
     prompt: '/price sow 12 register',
@@ -561,6 +565,27 @@ const SCENARIOS = {
           const row = rowCells(ledgerOf(f), LINE8);
           ok(/Approved/.test(row.Approved ?? '') && nums(row.Approved ?? '').some(near(200)), 'line 8 still Approved at 200.00');
           ok(!('State' in row) && dates(row['SOW acknowledged'] ?? '')[0] === '2026-11-25', 'line 8 has no State cell and keeps SOW acknowledged 2026-11-25');
+          ok(noPush(run), 'no git push, no gh pr');
+        },
+      },
+      {
+        // The schedule has lost its Increment detail table: approve recreates it under that heading, one row for line 8.
+        prompt: '/price approve 8 200',
+        prepare(f) {
+          writeFileSync(join(f.hub, 'docs/billing/retainer-schedule.md'), scheduleOf(f).replace(/\n## Increment detail[^]*$/, '\n'));
+          git(f.hub, 'commit', '-qam', 'schedule without Increment detail');
+        },
+        check(f, run, ok) {
+          const sched = scheduleOf(f);
+          ok(/^## Increment detail\s*$/m.test(sched), 'approve created the ## Increment detail heading');
+          const detail = section(sched, /^Increment detail/i).split('\n').filter((l) => /^\|/.test(l) && /Driver ratings|^\|\s*8\b/i.test(l));
+          ok(detail.length === 1 && dates(detail[0]).includes('2026-12-01') && nums(detail[0]).some(near(30)),
+            `one Increment detail row for line 8, from 2026-12-01 at 30.00 (${detail.length} found)`);
+          const months = ['Dec 2026', 'Mar 2027'].map((m) => {
+            const re = new RegExp(`^\\|\\s*${m}\\s*\\|`);
+            return [m, money(tableCell(sched, re, 'Approved increments')), money(tableCell(sched, re, 'Fee'))];
+          });
+          ok(months.every(([, inc, fee]) => near(30)(inc) && near(1330)(fee)), `Dec 2026 and Mar 2027 still read 30.00 and 1,330.00 (${months.map(([m, i, fe]) => `${m} ${i}/${fe}`).join(', ')})`);
           ok(noPush(run), 'no git push, no gh pr');
         },
       },
