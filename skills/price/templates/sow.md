@@ -19,7 +19,7 @@ Estimated fee: <n> USD · Ceiling: <n> USD (<percent> above the estimate) | n/a 
 Current fee: <n> USD
 Monthly increase: 15% of the fee, <n> USD a month at the estimate (Agreement 2.4b).
 Warranty: 14 days from deployment.
-Payment and increment: the fee is invoiced after the owner confirms the final fee in writing. The monthly increase starts on the 1st of the month after the warranty ends (Retroactive SOW: the 1st of the month after this SOW takes effect) and runs to the end of the Term.
+Payment and increment: the fee is invoiced after the owner confirms the final fee in writing. The monthly increase starts on the 1st of the month after the warranty ends (Retroactive SOW: the 1st of the month after the Client acknowledges this SOW) and runs to the end of the Term.
 
 ## Changes to the fee
 This fee is an estimate. If the work shows it is too low, the Service Provider tells the Client the reason before continuing. The fee may rise up to the ceiling with that notice. A fee above the ceiling needs the Client's written reply before the work continues. The fee is not reduced because the work was done faster than estimated.
