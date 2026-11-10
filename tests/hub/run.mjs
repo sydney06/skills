@@ -85,6 +85,11 @@ const readMode = (run, mode) => run.tools.some((t) =>
   (['Bash', 'PowerShell'].includes(t.name) && new RegExp(`modes[\\\\/]${mode}\\.md`).test(t.input?.command ?? '')));
 const section = (text, re) => text.split(/^## /m).find((s) => re.test(s)) ?? '';
 const readIf = (path) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
+// The harness is unattended, so the agent may state its pick instead of asking: accept the three options
+// printed, or one recommended answer named with a note that the owner must confirm it.
+const ANSWERS = ['New Feature', 'Maintenance', 'Needs discussion'];
+const askedOrPicked = (said) => ANSWERS.every((a) => said.includes(a)) ||
+  (/recommend/i.test(said) && /confirm/i.test(said) && ANSWERS.some((a) => said.includes(a)));
 const LINE12 = /^\|\s*12\s*\|/;
 const LINE7 = /^\|\s*7\s*\|/;
 const LINE8 = /^\|\s*8\s*\|/;
@@ -351,8 +356,8 @@ const SCENARIOS = {
     check(f, run, ok) {
       ok(readHub(run), 'read price/hub.md');
       ok(readMode(run, 'classify'), 'read modes/classify.md');
-      ok(/New Feature/.test(run.said) && /Maintenance/.test(run.said) && /Needs discussion/.test(run.said) && /recommend/i.test(run.said),
-        'asked with the three options and a recommendation');
+      ok(askedOrPicked(run.said) && /recommend/i.test(run.said),
+        'asked with the three options, or stated one recommended answer for the owner to confirm');
       const cls = readIf(join(f.hub, 'docs/billing/classification.md'));
       const answer = tableCell(cls, /Duplicate trips|row 2\b/i, 'Answer') ?? '';
       ok(/Maintenance/.test(answer) && !/New Feature/.test(answer), `classification.md records row 2 as Maintenance (${answer || 'no line'})`);
@@ -365,7 +370,7 @@ const SCENARIOS = {
       {
         prompt: '/price classify row 3',
         check(f, run, ok) {
-          ok(/New Feature/.test(run.said) && /Maintenance/.test(run.said) && /Needs discussion/.test(run.said), 'asked with the three options');
+          ok(askedOrPicked(run.said), 'asked with the three options, or stated one recommended answer for the owner to confirm');
           const cls = readIf(join(f.hub, 'docs/billing/classification.md'));
           const answer = tableCell(cls, /Trip history export|row 3\b/i, 'Answer') ?? '';
           ok(/New Feature/.test(answer), `classification.md records row 3 as New Feature (${answer || 'no line'})`);
