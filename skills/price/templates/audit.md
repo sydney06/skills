@@ -1,6 +1,6 @@
 # Audit: <feature>
 
-Ledger line <n> · audited <date> · model <name> · status **Proposed** (this file never says Approved)
+Ledger line <n> · audited <date> · model <name> · status **Proposed** (this file records a proposal only)
 
 ## Feature boundary
 Scope rows, branches, PRs, repos left out and why. Confirmed by the owner: yes | corrected.
