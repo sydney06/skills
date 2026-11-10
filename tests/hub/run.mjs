@@ -186,7 +186,7 @@ const SCENARIOS = {
       const is90 = (l) => /(^|[^\d.])1\.5\s*(h|hr|hrs|hours?)\b|(^|[^\d.])90\s*min/i.test(l);
       const is60 = (l) => /(^|[^\d.])1(\.0+)?\s*(h|hr|hrs|hours?)\b|(^|[^\d.])60\s*min/i.test(l);
       ok(sessions.length === 2 && sessions.some(is90) && sessions.some(is60), `two sessions of 1.5 h (90 min) and 1.0 h (60 min) from author dates (${sessions.length} found)`);
-      ok(/\b15:30\b/.test(audit) && !/\b12:00\b/.test(audit), 'session ends use author times (15:30), not the push time (12:00)');
+      ok(/15:30/.test(audit) && !/12:00/.test(audit), 'session ends use author times (15:30), not the push time (12:00)');
       ok(/Measured hours[^\n]*((^|[^\d.])2\.50*(?![\d.]*\d)|(^|[^\d.])150\s*min)/i.test(audit), 'measured hours 2.5 (or 150 min) on the Measured hours line');
       const seen = audit + '\n' + run.text;
       ok(/\b150\.00\b/.test(seen), 'effort fee 150.00 printed (2.5 h x 60)');
