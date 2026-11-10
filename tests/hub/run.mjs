@@ -170,7 +170,7 @@ const SCENARIOS = {
     },
   },
   price: {
-    about: '/price audit builds sessions from author dates and proposes, never approves; approve with no amount, and approve on an In progress line, are refused (three sessions)',
+    about: '/price audit builds sessions from author dates and proposes, never approves; approve with no amount, and approve on an In progress line, are refused (five sessions)',
     state: 'hub',
     prepare(f) { makePriceFixture(f.hub, f.api); f.retainerBefore = approvedCols(f.hub); },
     prompt: '/price audit 6',
@@ -225,20 +225,6 @@ const SCENARIOS = {
         },
       },
       {
-        // An audit exists for row 11, so only the In progress rule can refuse it.
-        prepare(f) {
-          writeFileSync(join(f.hub, 'docs/billing/audits/11-navigation.md'), '# Audit: Navigation\n\nLedger line 11 · work so far, not approvable\n\n**Work so far:** 300.00 · **Low:** 250.00 · **High:** 350.00\n');
-        },
-        prompt: '/price approve 11 300',
-        check(f, run, ok) {
-          const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
-          const row = ledger.split('\n').find((l) => /^\|\s*11\s*\|/.test(l)) ?? '';
-          ok(/In progress/i.test(row) && !/\bApproved\b/.test(row.replace(/Approved \(/g, '')) && /\bPending\b/.test(row), 'ledger row 11 still In progress and Pending after approve with an amount');
-          ok(/in progress/i.test(run.text) && /\b(refus\w*|cannot|can't|won't|not approvable)\b/i.test(run.text), 'approve refuses and names In progress');
-          ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged after the refused approve');
-        },
-      },
-      {
         prompt: '/price audit 11',
         check(f, run, ok) {
           const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
@@ -246,6 +232,17 @@ const SCENARIOS = {
           ok(/In progress/i.test(row) && !/\bProposed\b/.test(row) && !/\bApproved\b/.test(row.replace(/Approved \(/g, '')), 'ledger row 11 stays In progress after audit (not Proposed, not Approved)');
           ok(/work so far, not approvable/i.test(row), 'ledger row 11 says "work so far, not approvable"');
           ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged after auditing row 11');
+        },
+      },
+      {
+        // The row 11 audit now exists, so only the In progress rule can refuse this.
+        prompt: '/price approve 11 300',
+        check(f, run, ok) {
+          const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
+          const row = ledger.split('\n').find((l) => /^\|\s*11\s*\|/.test(l)) ?? '';
+          ok(/In progress/i.test(row) && !/\bApproved\b/.test(row.replace(/Approved \(/g, '')) && /\bPending\b/.test(row), 'ledger row 11 still In progress and Pending after approve with an amount');
+          ok(/in progress/i.test(run.text) && /\b(refus\w*|cannot|can't|won't|not approvable)\b/i.test(run.text), 'approve refuses and names In progress');
+          ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged after the refused approve');
         },
       },
     ],

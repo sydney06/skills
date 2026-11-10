@@ -308,14 +308,23 @@ const PRICE_COMMITS = [
   ['2026-10-01T15:30:00', 'docs: trip count notes (ledger 6)'],
 ];
 
+// Row 11 (Navigation, In progress) evidence: two commits on 2026-10-05, a different day
+// and different files from row 6's five, so row 6 stays 2.5 measured hours.
+const NAV_COMMITS = [
+  ['2026-10-05T09:00:00', 'feat: navigation route model'],
+  ['2026-10-05T09:20:00', 'feat: navigation turn list'],
+];
+
 export function makePriceFixture(hub, api) {
   const push = '2027-01-20T12:00:00';
-  PRICE_COMMITS.forEach(([author, msg], i) => {
-    write(join(api, 'src', `count${i}.js`), `export const step${i} = ${i};\n`);
+  const commit = ([author, msg], file, text) => {
+    write(join(api, file), text);
     git(api, 'add', '-A');
     execFileSync('git', ['-c', 'user.name=fixture', '-c', 'user.email=owner@example.com', 'commit', '-q', '-m', msg],
       { cwd: api, stdio: 'ignore', env: { ...process.env, GIT_AUTHOR_DATE: author + '+00:00', GIT_COMMITTER_DATE: push + '+00:00' } });
-  });
+  };
+  PRICE_COMMITS.forEach((c, i) => commit(c, join('src', `count${i}.js`), `export const step${i} = ${i};\n`));
+  NAV_COMMITS.forEach((c, i) => commit(c, join('src', 'navigation.ts'), `export const navStep = ${i};\n`));
   write(join(hub, 'docs/billing/README.md'), `
 # Billing
 
