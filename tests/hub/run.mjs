@@ -643,11 +643,15 @@ const SCENARIOS = {
           const detail = section(sched, /^Increment detail/i).split('\n').filter((l) => /^\|/.test(l) && /Driver ratings|^\|\s*8\b/i.test(l));
           ok(startsOn('Dec 2026', '2026-12-01') && startsOn('December 2026', '2026-12-01') && startsOn('2026-12-01', '2026-12-01') && !startsOn('Jan 2027', '2026-12-01'),
             'Starts helper accepts Dec 2026, December 2026 and 2026-12-01 as a 2026-12-01 start and rejects Jan 2027');
-          const cell = (col) => tableCell(section(sched, /^Increment detail/i), /Driver ratings|^\|\s*8\b/i, col) ?? '';
-          const span = monthYears(cell('Months'));
-          ok(detail.length === 1 && startsOn(cell('Starts'), '2026-12-01') && nums(cell('Monthly increment')).some(near(30)) &&
-            ['2026-12', '2027-01', '2027-02', '2027-03'].every((m) => span.includes(m)),
-            `one Increment detail row for line 8, from 2026-12-01 (or Dec 2026) at 30.00 over Dec 2026 to Mar 2027 (${detail.length} found: ${detail[0] ?? 'none'})`);
+          // approve names the recreated columns itself: read them by meaning (Starts / From, Months / Ends / Until, Monthly increment (15%)).
+          const cells = Object.entries(rowCells(section(sched, /^Increment detail/i), /Driver ratings|^\|\s*8\b/i));
+          const col = (re) => cells.filter(([h]) => re.test(h)).map(([, c]) => c).join(' ');
+          const start = col(/start|from|begin/i);
+          const span = col(/^months?$|end|until|through|last/i);
+          const spanMonths = [...dates(span).map((d) => d.slice(0, 7)), ...monthYears(span)];
+          ok(detail.length === 1 && startsOn(start, '2026-12-01') && nums(col(/increment/i)).some(near(30)) &&
+            spanMonths.includes('2027-03') && spanMonths.every((m) => m >= '2026-12' && m <= '2027-03'),
+            `one Increment detail row for line 8, from 2026-12-01 (or Dec 2026) at 30.00 through Mar 2027 (${detail.length} found: ${detail[0] ?? 'none'})`);
           const months = ['Dec 2026', 'Mar 2027'].map((m) => {
             const re = new RegExp(`^\\|\\s*${m}\\s*\\|`);
             return [m, money(tableCell(sched, re, 'Approved increments')), money(tableCell(sched, re, 'Fee'))];
