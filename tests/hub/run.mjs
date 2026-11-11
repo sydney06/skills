@@ -183,7 +183,7 @@ const clientReady = (sow, ok, label, retro, fee) => {
   ok(/15\s*%/.test(sow) && /1st of the month after/i.test(sow), `${label}: monthly increase 15% starting the 1st of the month after`);
   const hist = section(sow, /^History/);
   ok(/\bRegistered\b/i.test(hist) && numsAfter(hist, /\bRegistered\b/i).some(near(fee)), `${label}: History shows the Registered line at the Current fee ${fee}.00`);
-  ok(!/[\u2013\u2014]|\s-\s/.test(sow.replace(/^\|.*$/gm, '')), `${label}: no dashes in prose`);
+  ok(!/[\u2013\u2014]|[ \t]-[ \t]/.test(sow.replace(/^\|.*$/gm, '')), `${label}: no dashes in prose`);
 };
 const sowStatus = (sow) => sow.match(/^Status:([^\n·]*)/m)?.[1] ?? '';
 const branch = (dir) => git(dir, 'rev-parse', '--abbrev-ref', 'HEAD');
