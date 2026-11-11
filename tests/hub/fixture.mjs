@@ -633,7 +633,8 @@ Monthly increase: 15% of the fee, 30.00 USD a month (Agreement 2.4b).
 // Legacy line 8 (Admin ride edit) is measured from these commits, none in a lockfile or generated file:
 //   src/trips/edit.js     60 lines, one endpoint with real logic          -> Route 1.0
 //   admin/trips/route.js  30 lines, a thin pass through to the backend    -> Component 0.25, not a Route
-//   src/jobs/reminders.js existed before; +20 lines extend its schedule   -> lines only, not a Background job
+//   src/jobs/reminders.js existed before; +20 lines extend its body, no new   -> lines only, not a Background job
+//                         schedule or job file
 //   src/util/format.js    50 lines moved unchanged out of helpers.js      -> not counted
 //   hand written lines 60 + 30 + 20 = 110 -> 110 / 100 x 0.5 = 0.55
 //   score 1.0 + 0.25 + 0.55 = 1.80; solo hours 1.80 x 3.0 = 5.4; fee 5.4 x 25 = 135.00 (low = high, one anchor)
@@ -657,7 +658,7 @@ export function makeCalibrationFixture(hub, api) {
   commit('2026-10-20T11:00:00', 'feat: admin ride edit proxy (ledger 8)', {
     'admin/trips/route.js': lines(30, ['// Thin pass through to the backend, no logic of its own.', "export const PATCH = (req) => fetch(BACKEND + '/admin/trips/edit', { method: 'PATCH', body: req.body });"]) });
   commit('2026-10-20T12:00:00', 'feat: edit notice on the existing reminders job (ledger 8)', {
-    'src/jobs/reminders.js': cron + lines(20, ["cron.schedule('0 17 * * *', sendEditNotices);"]) });
+    'src/jobs/reminders.js': cron + lines(20, ['// Extends sendReminders: the reminder text also mentions an edited ride. Same job, same 09:00 schedule.']) });
   commit('2026-10-20T13:00:00', 'refactor: move formatters out of helpers (ledger 8)', {
     'src/util/helpers.js': note(30, 'note'),
     'src/util/format.js': note(50, 'fmt') });

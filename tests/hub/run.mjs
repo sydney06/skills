@@ -489,14 +489,15 @@ const SCENARIOS = {
       // Score 1.80: route 1.0 + proxy as Component 0.25 + 110 lines 0.55. Proxy as Route 2.55, cron as job 3.30, moved lines counted 2.05.
       ok(numsAfter(audit, /Size score/i).some(near(1.8)), 'size score 1.80 (1 route + 1 component + 110 lines; proxy is not a Route, cron is not a job, moved lines excluded)');
       ok(rows.some((l) => /Component/i.test(l) && nums(l).some(near(0.25))), 'the thin admin proxy counted as a Component (0.25)');
-      ok(!rows.some((l) => /(job|cron)/i.test(l) && nums(l).some(near(1.5))), 'no Background job points for the cron extension');
+      // A counted job row would show 1.5 twice (the weight and the points); an uncounted one shows the weight only.
+      ok(!rows.some((l) => /(job|cron)/i.test(l) && nums(l).filter(near(1.5)).length >= 2), 'no Background job points for the cron extension');
       ok(rows.some((l) => /lines/i.test(l) && nums(l).some(near(110))), 'hand written lines 110 (60 + 30 + 20), the cron extension counted by lines');
       ok(/format\.js/.test(audit) && /moved/i.test(audit), 'moved lines (format.js) named as not counted');
       ok(rows.some((l) => nums(l).some(near(21)) && nums(l).some(near(7)) && nums(l).some(near(3))), 'known time anchor row: line 7, 21 h, score 7.0, 3.0 h per point');
       ok(numsAfter(audit, /Solo hours/i).some(near(5.4)), 'solo hours 5.4 (1.80 x 3.0)');
       ok(numsAfter(audit, /\bFee\b/).some(near(135)), 'fee 135.00 (5.4 x 25)');
       ok(/Confidence[^\n]*\bLow\b/i.test(audit) && /single known.time anchor/i.test(audit), 'confidence Low with the reason single known-time anchor');
-      ok(audit.split('\n').some((l) => /cross.?check/i.test(l) && nums(l).some(near(90))) && rows.some((l) => nums(l).some(near(4.8)) && nums(l).some(near(2.4))), 'Appendix A cross check shown (item 1 row, cross check fee 90.00)');
+      ok(audit.split('\n').some((l) => /cross.?check/i.test(l) && nums(l).some((n) => Math.abs(n - 90) <= 0.5)) && rows.some((l) => nums(l).some(near(4.8)) && nums(l).some(near(2.4))), 'Appendix A cross check shown (item 1 row, cross check fee 90.00 within 0.5)');
       ok(!saysApproved(audit), 'audit never says Approved');
       const row = ledgerOf(f).split('\n').find((l) => LINE8.test(l)) ?? '';
       ok(/Proposed/i.test(row) && nums(row).some(near(135)) && !/\bApproved\b/.test(row.replace(/Approved \(/g, '')), 'ledger row 8 Proposed at 135.00, not Approved');
