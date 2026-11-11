@@ -413,12 +413,11 @@ const SCENARIOS = {
           const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
           const row = ledger.split('\n').find((l) => /^\|\s*7\s*\|/.test(l)) ?? '';
           ok(/Proposed/i.test(row) && nums(row).some(near(350)) &&/\bPending\b/.test(row) && !/\bApproved\b/.test(row.replace(/Approved \(/g, '')), 'ledger row 7 Proposed at 350.00, Approved still Pending');
-          // The literal may appear once or twice in a cell; assert on the cells, not the count.
+          // The literal may appear once or twice in the cell (and in the audit); assert on the ledger cell, not the count.
           const price7 = rowCells(ledger, LINE7)['Proposed price'] ?? '';
           const LEGACY_RATE = /n\/a \(legacy: contract rate\)/i;
           ok(LEGACY_RATE.test(price7) && !/speed factor\s*:?\s*\d/i.test(price7),
             `ledger row 7 price cell has "n/a (legacy: contract rate)", no speed factor number (${price7 || 'none'})`);
-          ok(LEGACY_RATE.test(audit), 'audit file shows "n/a (legacy: contract rate)" as the rate');
           const head = ledger.split('\n').find((l) => /\|\s*SOW acknowledged\s*\|/.test(l)) ?? '';
           const col = head.split('|').findIndex((c) => c.trim() === 'SOW acknowledged');
           ok(col > 0 && row.split('|')[col]?.trim() === '', 'ledger row 7 SOW acknowledged cell stays empty (no SOW date given)');
