@@ -395,8 +395,10 @@ const SCENARIOS = {
           const seen = audit + '\n' + run.text;
           const rows = audit.split('\n').filter((l) => l.startsWith('|'));
           ok(/Basis[^\n]*legacy/i.test(audit), 'audit states Basis legacy');
-          ok(!/Measured hours/i.test(audit) && !/(^|[^\d.])2\.50*\s*(h|hrs?|hours?)\b|(^|[^\d.])150\s*min/i.test(audit) && !/\b150\.00\b/.test(audit),
-            'no commit hours: no Measured hours, no 2.5 h, no effort fee 150.00');
+          // Wording free: a negating sentence ("Measured hours are not used") passes; a commit hours figure (2.5 h, 150 min, 150.00) in a non-negated line, or a Measured hours line carrying 2.5, fails.
+          const hoursLeak = audit.split('\n').filter((l) => !/\b(not|never|no|n't|without|ignored|unused|excluded)\b/i.test(l))
+            .filter((l) => /(^|[^\d.])2\.50*\s*(h|hrs?|hours?)\b|(^|[^\d.])150\s*min|\b150\.00\b/i.test(l) || (/Measured hours/i.test(l) && nums(l).some(near(2.5))));
+          ok(hoursLeak.length === 0, `no commit hours used in the fee arithmetic (${hoursLeak.join(' / ') || 'none found'})`);
           ok(/package-lock\.json/.test(audit) && /generated[\\/]prisma/.test(audit), 'excluded lockfile and generated Prisma client named');
           ok(numsAfter(audit, /Size score/i).some(near(7)), 'size score 7.0 (3 routes 3.0 + migration 1.5 + 2 emails 1.0 + 300 lines 1.5)');
           ok(rows.some((l) => nums(l).some(near(4.8)) && nums(l).some(near(2.4))), 'calibration row for item 1: 120 / 25 = 4.8 h, 4.8 / 2.0 = 2.4 h per point');
@@ -411,10 +413,12 @@ const SCENARIOS = {
           const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
           const row = ledger.split('\n').find((l) => /^\|\s*7\s*\|/.test(l)) ?? '';
           ok(/Proposed/i.test(row) && nums(row).some(near(350)) &&/\bPending\b/.test(row) && !/\bApproved\b/.test(row.replace(/Approved \(/g, '')), 'ledger row 7 Proposed at 350.00, Approved still Pending');
-          // The rate and speed factor part of the price cell starts with the literal; anything may follow it.
+          // The literal may appear once or twice in a cell; assert on the cells, not the count.
           const price7 = rowCells(ledger, LINE7)['Proposed price'] ?? '';
-          ok(/(^|·|\(|rate and speed factor:?)\s*n\/a \(legacy: contract rate/i.test(price7) && !/speed factor\s*:?\s*\d/i.test(price7),
-            `ledger row 7 rate and speed factor starts "n/a (legacy: contract rate", no speed factor number (${price7 || 'none'})`);
+          const LEGACY_RATE = /n\/a \(legacy: contract rate\)/i;
+          ok(LEGACY_RATE.test(price7) && !/speed factor\s*:?\s*\d/i.test(price7),
+            `ledger row 7 price cell has "n/a (legacy: contract rate)", no speed factor number (${price7 || 'none'})`);
+          ok(LEGACY_RATE.test(audit), 'audit file shows "n/a (legacy: contract rate)" as the rate');
           const head = ledger.split('\n').find((l) => /\|\s*SOW acknowledged\s*\|/.test(l)) ?? '';
           const col = head.split('|').findIndex((c) => c.trim() === 'SOW acknowledged');
           ok(col > 0 && row.split('|')[col]?.trim() === '', 'ledger row 7 SOW acknowledged cell stays empty (no SOW date given)');
@@ -675,6 +679,9 @@ const SCENARIOS = {
           });
           ok(months.every(([, inc, fee]) => near(30)(inc) && near(1330)(fee)), `Dec 2026 to Mar 2027 read 30.00 and 1,330.00 (${months.map(([m, i, fe]) => `${m} ${i}/${fe}`).join(', ')})`);
           const row = rowCells(ledgerOf(f), LINE8);
+          const status8 = readFileSync(join(f.hub, 'docs/billing/audits/driver-ratings.md'), 'utf8').split('\n').find((l) => /\bstatus\b/i.test(l)) ?? '';
+          ok(/\bApproved\b/.test(status8) && nums(status8).some(near(200)) && dates(status8).length > 0 && !/\bProposed\b/.test(status8.replace(/Proposed fee/gi, '')),
+            `approve rewrote the audit status line to Approved at 200.00 on a date (${status8 || 'none'})`);
           ok(/Approved/.test(row.Approved ?? '') && nums(row.Approved ?? '').some(near(200)), 'line 8 still Approved at 200.00');
           ok(!('State' in row) && dates(row['SOW acknowledged'] ?? '')[0] === '2026-11-25', 'line 8 has no State cell and keeps SOW acknowledged 2026-11-25');
           ok(/to confirm/i.test(row.Deployed ?? ''), `line 8 Deployed still "to confirm", so 30.00 from 2026-12-01 comes from the ack, not deployment (${row.Deployed || 'none'})`);
