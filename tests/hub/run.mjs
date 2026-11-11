@@ -172,6 +172,19 @@ const scopeUntouched = (f) => git(f.hub, 'status', '--porcelain', 'docs/scope', 
 const noPush = (run) => !bashCmds(run).some((c) => /git\s+(-C\s+\S+\s+)?push\b|gh\s+pr\s+(create|edit|merge)\b/.test(c));
 const sowFiles = (f) => { const d = join(f.hub, 'docs/billing/sows'); return existsSync(d) ? readdirSync(d) : []; };
 const sowText = (f) => { const [n] = sowFiles(f); return n ? readFileSync(join(f.hub, 'docs/billing/sows', n), 'utf8') : ''; };
+// The SOW goes to the client as written: no internal wording, a payment line with a due day, and a
+// Warranty line only when the work is not yet built. Checks behavior, not exact wording.
+const clientReady = (sow, ok, label, retro, fee) => {
+  ok(!/audits?[\/]|estimate\.md|\.md\b|\bledger\b|\bproposal|\bproposed\b|\baudit(ed)?\b|\blegacy\b|size score/i.test(sow), `${label}: no audit path, ledger, proposal, audit, legacy or size score in the file`);
+  const pay = sow.split('\n').find((l) => /^Payment\b/i.test(l)) ?? '';
+  ok(/\bdue\b/i.test(pay) && /\b5(th)?\b/.test(pay) && !/to fill/i.test(pay), `${label}: Payment line states when payment is due from the README (${pay.trim() || 'none'})`);
+  const warr = sow.split('\n').find((l) => /^Warranty\b/i.test(l)) ?? '';
+  ok(retro ? !/14\s*(calendar\s*)?days?/i.test(warr) : /14\s*(calendar\s*)?days?/i.test(warr), `${label}: ${retro ? 'no 14 day Warranty line on a Retroactive SOW' : 'Warranty line of 14 days kept'} (${warr.trim() || 'no line'})`);
+  ok(/15\s*%/.test(sow) && /1st of the month after/i.test(sow), `${label}: monthly increase 15% starting the 1st of the month after`);
+  const hist = section(sow, /^History/);
+  ok(/\bRegistered\b/i.test(hist) && numsAfter(hist, /\bRegistered\b/i).some(near(fee)), `${label}: History shows the Registered line at the Current fee ${fee}.00`);
+  ok(!/[\u2013\u2014]|\s-\s/.test(sow.replace(/^\|.*$/gm, '')), `${label}: no dashes in prose`);
+};
 const sowStatus = (sow) => sow.match(/^Status:([^\n·]*)/m)?.[1] ?? '';
 const branch = (dir) => git(dir, 'rev-parse', '--abbrev-ref', 'HEAD');
 const sha = (dir, ref) => git(dir, 'rev-parse', ref);
@@ -561,6 +574,7 @@ const SCENARIOS = {
       ok(/Done when:[^\n]*email/i.test(sow), 'Done when line from scope row 3');
       ok(/SOW-001/.test(tableCell(ledgerOf(f), LINE12, 'SOW no.') ?? '') && /Draft/.test(tableCell(ledgerOf(f), LINE12, 'SOW status') ?? ''), 'ledger SOW no. SOW-001, SOW status Draft');
       ok(!/\bsigned\b/i.test(sowStatus(sow)), 'not marked signed');
+      clientReady(sow, ok, 'SOW-001', false, 410);
       ok(scopeUntouched(f), 'no scope row or spec changed');
     },
     then: [
@@ -614,6 +628,7 @@ const SCENARIOS = {
           ok(sowFiles(f).length === 2 && !!sow, `SOW-002 registered next to SOW-001 (${sowFiles(f).join(', ')})`);
           ok(/Retroactive SOW[^\n]*\byes\b/i.test(sow) && !/yes\s*\|\s*no/i.test(sow), 'SOW-002 is a Retroactive SOW (yes, not the template choice)');
           ok(/Draft/.test(sowStatus(sow)) && numsAfter(sow, /Estimated fee/i).some(near(300)), 'SOW-002 Draft with the audited fee 300.00 as its estimate');
+          clientReady(sow, ok, 'SOW-002', true, 300);
           const ledger = ledgerOf(f);
           ok(/SOW-002/.test(tableCell(ledger, LINE7, 'SOW no.') ?? ''), 'ledger line 7 SOW no. SOW-002');
           ok(dates(tableCell(ledger, LINE7, 'SOW acknowledged') ?? '').length === 0, 'line 7 SOW acknowledged still empty before the ack');

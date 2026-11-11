@@ -375,6 +375,8 @@ export function makePriceFixture(hub, api) {
 # Billing
 
 Fixture billing records. Amounts in USD. Nothing is Approved unless the owner writes "approved" with an amount.
+
+- Invoicing (4.2, 4.3): invoice by the 1st, due the 5th, late interest after the 10th.
 `);
   write(join(hub, 'docs/billing/rates.md'), `
 # Rates
