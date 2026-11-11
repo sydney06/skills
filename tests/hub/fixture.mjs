@@ -626,3 +626,51 @@ Monthly increase: 15% of the fee, 30.00 USD a month (Agreement 2.4b).
     '| 8 Driver ratings | 200.00 | 30.00 | to confirm | n/a (legacy) | pending the SOW acknowledgement |'));
   commitAll(hub, 'legacy line 8 approved before its SOW ack');
 }
+
+// Calibration fixture (price scenario `calibration`) on top of the /price fixture. size-weights.md gains a
+// Known time anchors table: ledger line 7 with 21 owner confirmed hours. Line 7's score is 7.0 (see
+// LEGACY_COMMITS), so the rate is 21 / 7.0 = 3.0 h per point (the Appendix A median is 2.0, the cross check).
+// Legacy line 8 (Admin ride edit) is measured from these commits, none in a lockfile or generated file:
+//   src/trips/edit.js     60 lines, one endpoint with real logic          -> Route 1.0
+//   admin/trips/route.js  30 lines, a thin pass through to the backend    -> Component 0.25, not a Route
+//   src/jobs/reminders.js existed before; +20 lines extend its schedule   -> lines only, not a Background job
+//   src/util/format.js    50 lines moved unchanged out of helpers.js      -> not counted
+//   hand written lines 60 + 30 + 20 = 110 -> 110 / 100 x 0.5 = 0.55
+//   score 1.0 + 0.25 + 0.55 = 1.80; solo hours 1.80 x 3.0 = 5.4; fee 5.4 x 25 = 135.00 (low = high, one anchor)
+//   cross check: 1.80 x 2.0 = 3.6 h, 90.00, 45.00 below the proposal
+// Counted the old way the score would be 2.55 (proxy as Route), 3.30 (plus a Background job) or 2.05 (plus moved lines).
+export function makeCalibrationFixture(hub, api) {
+  makePriceFixture(hub, api);
+  const date = (d) => ({ ...process.env, GIT_AUTHOR_DATE: d + '+00:00', GIT_COMMITTER_DATE: '2027-01-20T12:00:00+00:00' });
+  const commit = (d, msg, files) => {
+    for (const [file, text] of Object.entries(files)) write(join(api, file), text);
+    git(api, 'add', '-A');
+    execFileSync('git', ['-c', 'user.name=fixture', '-c', 'user.email=owner@example.com', 'commit', '-q', '-m', msg], { cwd: api, stdio: 'ignore', env: date(d) });
+  };
+  const note = (n, tag) => Array.from({ length: n }, (_, i) => `// ${tag} ${i + 1}`).join('\n') + '\n';
+  const cron = lines(20, ["cron.schedule('0 9 * * *', sendReminders);"]);
+  commit('2026-05-01T09:00:00', 'chore: reminders job and helpers (before ledger 8)', {
+    'src/jobs/reminders.js': cron,
+    'src/util/helpers.js': note(30, 'note') + note(50, 'fmt') });
+  commit('2026-10-20T10:00:00', 'feat: admin ride edit endpoint (ledger 8)', {
+    'src/trips/edit.js': lines(60, ["router.patch('/admin/trips/:id/edit', async (req, res) => { res.json(await recalcFare(req.body)); });"]) });
+  commit('2026-10-20T11:00:00', 'feat: admin ride edit proxy (ledger 8)', {
+    'admin/trips/route.js': lines(30, ['// Thin pass through to the backend, no logic of its own.', "export const PATCH = (req) => fetch(BACKEND + '/admin/trips/edit', { method: 'PATCH', body: req.body });"]) });
+  commit('2026-10-20T12:00:00', 'feat: edit notice on the existing reminders job (ledger 8)', {
+    'src/jobs/reminders.js': cron + lines(20, ["cron.schedule('0 17 * * *', sendEditNotices);"]) });
+  commit('2026-10-20T13:00:00', 'refactor: move formatters out of helpers (ledger 8)', {
+    'src/util/helpers.js': note(30, 'note'),
+    'src/util/format.js': note(50, 'fmt') });
+  const sw = join(hub, 'docs/billing/size-weights.md');
+  write(sw, readFileSync(sw, 'utf8') + `
+## Known time anchors
+
+| Ledger line | Feature | Owner confirmed hours | Source |
+|---|---|---|---|
+| 7 | Support ticket escalation | 21 | the owner, 11 Nov 2026 (hours stated, not measured) |
+`);
+  const lg = join(hub, 'docs/billing/ledger.md');
+  const text = readFileSync(lg, 'utf8').replace(/(\| 7 \|[^\n]*\n)/, '$1| 8 | Admin ride edit | api | legacy (size based) | Pending | Pending | to confirm | | | |\n');
+  write(lg, text);
+  commitAll(hub, 'calibration fixture');
+}

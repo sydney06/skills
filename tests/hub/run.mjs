@@ -14,7 +14,7 @@ import { join, dirname, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { buildFixture, installSkills, addGatePrefs, makeUncommittedChanges, makeFeatureBranches, makePriceFixture, makeLifecycleFixture, makeLegacySowFixture, makeLegacyApprovedFixture, git } from './fixture.mjs';
+import { buildFixture, installSkills, addGatePrefs, makeUncommittedChanges, makeFeatureBranches, makePriceFixture, makeLifecycleFixture, makeCalibrationFixture, makeLegacySowFixture, makeLegacyApprovedFixture, git } from './fixture.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -472,6 +472,38 @@ const SCENARIOS = {
         },
       },
     ],
+  },
+  calibration: {
+    about: '/price audit on a legacy line calibrated on one known time anchor (line 7, 21 h): rate 3.0 h per point, thin admin proxy a Component, cron extension counted by lines, moved lines excluded, fee 135.00, Low (single known-time anchor), Appendix A cross check 90.00 shown',
+    state: 'hub',
+    prepare(f) { makeCalibrationFixture(f.hub, f.api); f.retainerBefore = approvedCols(f.hub); },
+    prompt: '/price audit 8',
+    check(f, run, ok) {
+      ok(readHub(run), 'read price/hub.md');
+      const dir = join(f.hub, 'docs/billing/audits');
+      const files = existsSync(dir) ? readdirSync(dir) : [];
+      ok(files.length === 1, `one audit file written (${files.join(', ') || 'none'})`);
+      const audit = files.length ? readFileSync(join(dir, files[0]), 'utf8') : '';
+      const rows = audit.split('\n').filter((l) => l.startsWith('|'));
+      ok(/Basis[^\n]*legacy/i.test(audit), 'audit states Basis legacy');
+      // Score 1.80: route 1.0 + proxy as Component 0.25 + 110 lines 0.55. Proxy as Route 2.55, cron as job 3.30, moved lines counted 2.05.
+      ok(numsAfter(audit, /Size score/i).some(near(1.8)), 'size score 1.80 (1 route + 1 component + 110 lines; proxy is not a Route, cron is not a job, moved lines excluded)');
+      ok(rows.some((l) => /Component/i.test(l) && nums(l).some(near(0.25))), 'the thin admin proxy counted as a Component (0.25)');
+      ok(!rows.some((l) => /(job|cron)/i.test(l) && nums(l).some(near(1.5))), 'no Background job points for the cron extension');
+      ok(rows.some((l) => /lines/i.test(l) && nums(l).some(near(110))), 'hand written lines 110 (60 + 30 + 20), the cron extension counted by lines');
+      ok(/format\.js/.test(audit) && /moved/i.test(audit), 'moved lines (format.js) named as not counted');
+      ok(rows.some((l) => nums(l).some(near(21)) && nums(l).some(near(7)) && nums(l).some(near(3))), 'known time anchor row: line 7, 21 h, score 7.0, 3.0 h per point');
+      ok(numsAfter(audit, /Solo hours/i).some(near(5.4)), 'solo hours 5.4 (1.80 x 3.0)');
+      ok(numsAfter(audit, /\bFee\b/).some(near(135)), 'fee 135.00 (5.4 x 25)');
+      ok(/Confidence[^\n]*\bLow\b/i.test(audit) && /single known.time anchor/i.test(audit), 'confidence Low with the reason single known-time anchor');
+      ok(audit.split('\n').some((l) => /cross.?check/i.test(l) && nums(l).some(near(90))) && rows.some((l) => nums(l).some(near(4.8)) && nums(l).some(near(2.4))), 'Appendix A cross check shown (item 1 row, cross check fee 90.00)');
+      ok(!saysApproved(audit), 'audit never says Approved');
+      const row = ledgerOf(f).split('\n').find((l) => LINE8.test(l)) ?? '';
+      ok(/Proposed/i.test(row) && nums(row).some(near(135)) && !/\bApproved\b/.test(row.replace(/Approved \(/g, '')), 'ledger row 8 Proposed at 135.00, not Approved');
+      ok(git(f.hub, 'status', '--porcelain', 'docs/billing/size-weights.md') === '', 'size-weights.md untouched (the skill proposes, never edits it)');
+      ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged');
+      ok(noPush(run), 'no git push, no gh pr');
+    },
   },
   quote: {
     about: '/price quote: estimate 410.00, ceiling 490.00 and retainer 61.50 / 73.50 from the plan, calibrated on Appendix A; line 12 Estimated, never Approved',
