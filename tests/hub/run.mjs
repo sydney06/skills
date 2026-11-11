@@ -14,7 +14,7 @@ import { join, dirname, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { buildFixture, installSkills, addGatePrefs, makeUncommittedChanges, makeFeatureBranches, makePriceFixture, makeLifecycleFixture, makeLegacySowFixture, makeLegacyApprovedFixture, git } from './fixture.mjs';
+import { buildFixture, installSkills, addGatePrefs, makeUncommittedChanges, makeFeatureBranches, makePriceFixture, makeLifecycleFixture, makeCalibrationFixture, makeLegacySowFixture, makeLegacyApprovedFixture, git } from './fixture.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -395,8 +395,10 @@ const SCENARIOS = {
           const seen = audit + '\n' + run.text;
           const rows = audit.split('\n').filter((l) => l.startsWith('|'));
           ok(/Basis[^\n]*legacy/i.test(audit), 'audit states Basis legacy');
-          ok(!/Measured hours/i.test(audit) && !/(^|[^\d.])2\.50*\s*(h|hrs?|hours?)\b|(^|[^\d.])150\s*min/i.test(audit) && !/\b150\.00\b/.test(audit),
-            'no commit hours: no Measured hours, no 2.5 h, no effort fee 150.00');
+          // Wording free: a negating sentence ("Measured hours are not used") passes; a commit hours figure (2.5 h, 150 min, 150.00) in a non-negated line, or a Measured hours line carrying 2.5, fails.
+          const hoursLeak = audit.split('\n').filter((l) => !/\b(not|never|no|n't|without|ignored|unused|excluded)\b/i.test(l))
+            .filter((l) => /(^|[^\d.])2\.50*\s*(h|hrs?|hours?)\b|(^|[^\d.])150\s*min|\b150\.00\b/i.test(l) || (/Measured hours/i.test(l) && nums(l).some(near(2.5))));
+          ok(hoursLeak.length === 0, `no commit hours used in the fee arithmetic (${hoursLeak.join(' / ') || 'none found'})`);
           ok(/package-lock\.json/.test(audit) && /generated[\\/]prisma/.test(audit), 'excluded lockfile and generated Prisma client named');
           ok(numsAfter(audit, /Size score/i).some(near(7)), 'size score 7.0 (3 routes 3.0 + migration 1.5 + 2 emails 1.0 + 300 lines 1.5)');
           ok(rows.some((l) => nums(l).some(near(4.8)) && nums(l).some(near(2.4))), 'calibration row for item 1: 120 / 25 = 4.8 h, 4.8 / 2.0 = 2.4 h per point');
@@ -411,10 +413,11 @@ const SCENARIOS = {
           const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
           const row = ledger.split('\n').find((l) => /^\|\s*7\s*\|/.test(l)) ?? '';
           ok(/Proposed/i.test(row) && nums(row).some(near(350)) &&/\bPending\b/.test(row) && !/\bApproved\b/.test(row.replace(/Approved \(/g, '')), 'ledger row 7 Proposed at 350.00, Approved still Pending');
-          // The rate and speed factor part of the price cell starts with the literal; anything may follow it.
+          // The literal may appear once or twice in the cell (and in the audit); assert on the ledger cell, not the count.
           const price7 = rowCells(ledger, LINE7)['Proposed price'] ?? '';
-          ok(/(^|·|\(|rate and speed factor:?)\s*n\/a \(legacy: contract rate/i.test(price7) && !/speed factor\s*:?\s*\d/i.test(price7),
-            `ledger row 7 rate and speed factor starts "n/a (legacy: contract rate", no speed factor number (${price7 || 'none'})`);
+          const LEGACY_RATE = /n\/a \(legacy: contract rate\)/i;
+          ok(LEGACY_RATE.test(price7) && !/speed factor\s*:?\s*\d/i.test(price7),
+            `ledger row 7 price cell has "n/a (legacy: contract rate)", no speed factor number (${price7 || 'none'})`);
           const head = ledger.split('\n').find((l) => /\|\s*SOW acknowledged\s*\|/.test(l)) ?? '';
           const col = head.split('|').findIndex((c) => c.trim() === 'SOW acknowledged');
           ok(col > 0 && row.split('|')[col]?.trim() === '', 'ledger row 7 SOW acknowledged cell stays empty (no SOW date given)');
@@ -472,6 +475,39 @@ const SCENARIOS = {
         },
       },
     ],
+  },
+  calibration: {
+    about: '/price audit on a legacy line calibrated on one known time anchor (line 7, 21 h): rate 3.0 h per point, thin admin proxy a Component, cron extension counted by lines, moved lines excluded, fee 135.00, Low (single known-time anchor), Appendix A cross check 90.00 shown',
+    state: 'hub',
+    prepare(f) { makeCalibrationFixture(f.hub, f.api); f.retainerBefore = approvedCols(f.hub); },
+    prompt: '/price audit 8',
+    check(f, run, ok) {
+      ok(readHub(run), 'read price/hub.md');
+      const dir = join(f.hub, 'docs/billing/audits');
+      const files = existsSync(dir) ? readdirSync(dir) : [];
+      ok(files.length === 1, `one audit file written (${files.join(', ') || 'none'})`);
+      const audit = files.length ? readFileSync(join(dir, files[0]), 'utf8') : '';
+      const rows = audit.split('\n').filter((l) => l.startsWith('|'));
+      ok(/Basis[^\n]*legacy/i.test(audit), 'audit states Basis legacy');
+      // Score 1.80: route 1.0 + proxy as Component 0.25 + 110 lines 0.55. Proxy as Route 2.55, cron as job 3.30, moved lines counted 2.05.
+      ok(numsAfter(audit, /Size score/i).some(near(1.8)), 'size score 1.80 (1 route + 1 component + 110 lines; proxy is not a Route, cron is not a job, moved lines excluded)');
+      ok(rows.some((l) => /Component/i.test(l) && nums(l).some(near(0.25))), 'the thin admin proxy counted as a Component (0.25)');
+      // A counted job row would show 1.5 twice (the weight and the points); an uncounted one shows the weight only.
+      ok(!rows.some((l) => /(job|cron)/i.test(l) && nums(l).filter(near(1.5)).length >= 2), 'no Background job points for the cron extension');
+      ok(rows.some((l) => /lines/i.test(l) && nums(l).some(near(110))), 'hand written lines 110 (60 + 30 + 20), the cron extension counted by lines');
+      ok(/format\.js/.test(audit) && /moved/i.test(audit), 'moved lines (format.js) named as not counted');
+      ok(rows.some((l) => nums(l).some(near(21)) && nums(l).some(near(7)) && nums(l).some(near(3))), 'known time anchor row: line 7, 21 h, score 7.0, 3.0 h per point');
+      ok(numsAfter(audit, /Solo hours/i).some(near(5.4)), 'solo hours 5.4 (1.80 x 3.0)');
+      ok(numsAfter(audit, /\bFee\b/).some(near(135)), 'fee 135.00 (5.4 x 25)');
+      ok(/Confidence[^\n]*\bLow\b/i.test(audit) && /single known.time anchor/i.test(audit), 'confidence Low with the reason single known-time anchor');
+      ok(audit.split('\n').some((l) => /cross.?check/i.test(l) && nums(l).some((n) => Math.abs(n - 90) <= 0.5)) && rows.some((l) => nums(l).some(near(4.8)) && nums(l).some(near(2.4))), 'Appendix A cross check shown (item 1 row, cross check fee 90.00 within 0.5)');
+      ok(!saysApproved(audit), 'audit never says Approved');
+      const row = ledgerOf(f).split('\n').find((l) => LINE8.test(l)) ?? '';
+      ok(/Proposed/i.test(row) && nums(row).some(near(135)) && !/\bApproved\b/.test(row.replace(/Approved \(/g, '')), 'ledger row 8 Proposed at 135.00, not Approved');
+      ok(git(f.hub, 'status', '--porcelain', 'docs/billing/size-weights.md') === '', 'size-weights.md untouched (the skill proposes, never edits it)');
+      ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged');
+      ok(noPush(run), 'no git push, no gh pr');
+    },
   },
   quote: {
     about: '/price quote: estimate 410.00, ceiling 490.00 and retainer 61.50 / 73.50 from the plan, calibrated on Appendix A; line 12 Estimated, never Approved',
@@ -642,6 +678,9 @@ const SCENARIOS = {
           });
           ok(months.every(([, inc, fee]) => near(30)(inc) && near(1330)(fee)), `Dec 2026 to Mar 2027 read 30.00 and 1,330.00 (${months.map(([m, i, fe]) => `${m} ${i}/${fe}`).join(', ')})`);
           const row = rowCells(ledgerOf(f), LINE8);
+          const status8 = readFileSync(join(f.hub, 'docs/billing/audits/driver-ratings.md'), 'utf8').split('\n').find((l) => /\bstatus\b/i.test(l)) ?? '';
+          ok(/\bApproved\b/.test(status8) && nums(status8).some(near(200)) && dates(status8).length > 0 && !/\bProposed\b/.test(status8.replace(/Proposed fee/gi, '')),
+            `approve rewrote the audit status line to Approved at 200.00 on a date (${status8 || 'none'})`);
           ok(/Approved/.test(row.Approved ?? '') && nums(row.Approved ?? '').some(near(200)), 'line 8 still Approved at 200.00');
           ok(!('State' in row) && dates(row['SOW acknowledged'] ?? '')[0] === '2026-11-25', 'line 8 has no State cell and keeps SOW acknowledged 2026-11-25');
           ok(/to confirm/i.test(row.Deployed ?? ''), `line 8 Deployed still "to confirm", so 30.00 from 2026-12-01 comes from the ack, not deployment (${row.Deployed || 'none'})`);
