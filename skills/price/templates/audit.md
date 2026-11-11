@@ -48,16 +48,18 @@ Basis: legacy, size based · weights row dated <date> · contract rate <n> (rate
 | Repo | Signal | Count | Weight | Points | Files |
 |---|---|---|---|---|---|
 
-Excluded: <files>. **Size score:** <n>. Built (commit dates, not effort): <first> to <last>.
+Excluded: <files>. Moved lines (not counted): <files and lines or none>. **Size score:** <n>. Built (commit dates, not effort): <first> to <last>.
 
-## Calibration (Appendix A items 1 to 4)
+## Calibration
+Known time anchors (`size-weights.md`): | Ledger line | Owner hours | Score | Hours per point |, then **Rate** <n> (the single anchor, or the median) · lowest <n> · highest <n> · not found: <anchors or none>.
+Appendix A items 1 to 4 (fallback when no known time anchor, otherwise a cross check column):
 | Item | Valuation | Solo hours (valuation / rate) | Score | Hours per point |
 |---|---|---|---|---|
 
-Median <n> · lowest <n> · highest <n> · not found: <items or none>.
+Median <n> · lowest <n> · highest <n> · not found: <items or none>. Cross check fee <n> (score x median x contract rate), differs from the proposed fee by <n>.
 
 ## Fee (arithmetic shown)
-Solo hours = score x median = <n>. Fee = solo hours x contract rate = <n>, nearest 5: **<n>**. Low = score x lowest x rate = <n>, nearest 5: **<n>**. High = score x highest x rate = <n>, nearest 5: **<n>**.
-Closest anchor: <item>. **Confidence:** Medium | Low (reason).
+Solo hours = score x rate = <n>. Fee = solo hours x contract rate = <n>, nearest 5: **<n>**. Low = score x lowest x rate = <n>, nearest 5: **<n>**. High = score x highest x rate = <n>, nearest 5: **<n>**.
+Closest anchor: <item>. **Confidence:** Medium | Low (reason, e.g. `single known-time anchor`).
 
 Increment starts: <1st of month after the SOW acknowledgement date> | pending until that date exists (never the registration date). Deployed: information only.
