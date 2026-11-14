@@ -3,9 +3,9 @@
 `/price classify <scope row or "request">`. A scope row is read in `docs/scope/` with its Done when lines and any spec it links; a request in quotes is taken as written.
 
 1. **Read the request.** → the row (or the request) is quoted in the output.
-2. **Apply the Agreement's tests.** Print each test with Yes or No and the line of the request that supports it (no line → No):
-   - Maintenance (1.2): existing deployed code fails its documented or reasonably expected function (a Bug); a security fix; a third party's change broke the Platform.
-   - New Feature (1.3): it changes behavior, adds business logic, changes a user flow, or adds a capability.
+2. **Apply the contract's tests** from `terms.md` (a missing key → stop and name it). Print each test with Yes or No and the line of the request that supports it (no line → No):
+   - Maintenance (`clause_maintenance`): each part of `maintenance_test`.
+   - New Feature (`clause_sow`): each part of `new_feature_test`.
    → every test printed with its line.
 3. **Recommend one answer** with its reasons: only Maintenance tests hold → Maintenance; only New Feature tests hold → New Feature; both → Needs discussion, and say how to split the row into a Maintenance part and a New Feature part. → one recommendation.
 4. **Ask the owner:** New Feature, Maintenance, Needs discussion, the recommended one first with its one line why. Decided by is `Owner` only if the owner answered in this conversation; otherwise, even when you record the recommended answer, it is `pending owner confirmation`, and the report says the answer is the owner's to confirm. → answered, or pending owner confirmation.

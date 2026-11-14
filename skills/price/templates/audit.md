@@ -14,10 +14,10 @@ Process: boxes ticked, specs and notes, review findings fixed.
 Squash or rebase: none | where, and what was used instead.
 
 ## Sessions (author dates)
-| # | Start | End | Commits | Length incl. 30 min lead |
+| # | Start | End | Commits | Length incl. lead |
 |---|---|---|---|---|
 
-Gaps over 3 hours, days with one commit.
+Gaps over the session gap, days with one commit.
 **Measured hours:** <n> · **Confidence:** High | Low (reason) · Owner estimate: <n or none, becomes the source>
 
 ## Rate used
@@ -28,7 +28,7 @@ Rates row dated <date>: feature rate <n>, contract rate <n>, speed factor <n>. P
 |---|---|---|
 | Effort | measured hours x feature rate | |
 | Solo | measured hours x speed factor = solo hours; x contract rate | |
-| Reference | Appendix A items used, size adjustments (item 5 excluded) | |
+| Reference | Reference items used, size adjustments (Waived items excluded) | |
 
 **Proposed fee:** <median, nearest 5> · **Low:** <n> · **High:** <n>
 Spread over 40%: no | yes, why, and the basis the owner chose.
@@ -36,7 +36,7 @@ With an Estimate: fee = SOW Current fee, else the ledger Estimate when there is 
 
 ## Dates and retainer effect
 Deployed: <date and source> | unknown (needed: <what>). Warranty ends: <date>. Increment starts: <1st of month>.
-Increment: 15% of fee = <n> a month · months to Term end: <n> · total: <n> | pending a date.
+Increment: <increment_text> = <n> a month · months to <term_end>: <n> · total: <n> | pending a date.
 
 ## Open items
 Client acknowledgement: outstanding. Anything missing or flagged.
@@ -52,7 +52,7 @@ Excluded: <files>. Moved lines (not counted): <files and lines or none>. **Size 
 
 ## Calibration
 Known time anchors (`size-weights.md`): | Ledger line | Owner hours | Score | Hours per point |, then **Rate** <n> (the single anchor, or the median) · lowest <n> · highest <n> · not found: <anchors or none>.
-Appendix A items 1 to 4 (fallback when no known time anchor, otherwise a cross check column):
+Reference items (fallback when no known time anchor, otherwise a cross check column):
 | Item | Valuation | Solo hours (valuation / rate) | Score | Hours per point |
 |---|---|---|---|---|
 

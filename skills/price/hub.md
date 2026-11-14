@@ -20,10 +20,9 @@ A hub is a folder holding several independent git repos plus a `workflow.repos.j
 
 ## How /price changes in hub mode
 
-`/price` is hub only. The billing folder is `HUB/docs/billing/`: read `README.md`, `ledger.md`, `retainer-schedule.md`, `rates.md` (its Ceiling too), and `size-weights.md` (weights, and the Known time anchors table) there first. `size-weights.md` missing on a legacy audit or a `quote` → stop and say `HUB/docs/billing/size-weights.md` is missing (no weights to score size). Audits and estimates go in `HUB/docs/billing/audits/`, SOWs in `HUB/docs/billing/sows/`. `classification.md` or `sows/` missing → create it on the first write. Billing files commit to the hub, never to a repo; offer the commit, never push.
+`/price` is hub only. The billing folder is `HUB/docs/billing/`: read `README.md`, `ledger.md`, `retainer-schedule.md`, `rates.md` (its Ceiling too), `terms.md`, and `size-weights.md` (weights, and the Known time anchors table) there first. `size-weights.md` missing on a legacy audit or a `quote` → stop and say `HUB/docs/billing/size-weights.md` is missing (no weights to score size). Audits and estimates go in `HUB/docs/billing/audits/`, SOWs in `HUB/docs/billing/sows/`. `classification.md` or `sows/` missing → create it on the first write. Billing files commit to the hub, never to a repo; offer the commit, never push.
 
 - **Repos:** the repos to read come from `HUB/workflow.repos.json`. Run every git command as `git -C <path> …` with a read only verb (`log`, `show`, `shortlog`, `diff`, `rev-list`, `branch --list`). Use `gh` only to read a PR, from the repo as its working directory.
 - **Feature to repos:** a ledger line names its repos; a scope row names them in `HUB/docs/scope/<name>/`. Include each repo the feature touched, and say which you left out.
-- **Render:** the only Render access is `scripts/render-ro.ps1` in `HUB`, for example `.\scripts\render-ro.ps1 deploys list <service id>`. Never call `render` or any other Render command.
-- **Vercel and EAS:** no tool access. Ask the owner for the date, or record the deployment date as unknown.
+- **Deploy dates:** run only the read only commands listed in `deploy_date_sources` in `terms.md`, from `HUB`. Never call any other deploy host command. A host with no listed command: ask the owner for the date, or record the deployment date as unknown.
 - **Rates:** the Active row in `HUB/docs/billing/rates.md`. Past audits keep the rate they used.

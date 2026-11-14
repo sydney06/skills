@@ -14,7 +14,7 @@ import { join, dirname, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { buildFixture, installSkills, addGatePrefs, makeUncommittedChanges, makeFeatureBranches, makePriceFixture, makeLifecycleFixture, makeCalibrationFixture, makeLegacySowFixture, makeLegacyApprovedFixture, git } from './fixture.mjs';
+import { buildFixture, installSkills, addGatePrefs, makeUncommittedChanges, makeFeatureBranches, makePriceFixture, makeLifecycleFixture, makeCalibrationFixture, makeLegacySowFixture, makeLegacyApprovedFixture, makeSecondProjectTerms, git } from './fixture.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -87,6 +87,10 @@ const tableCell = (text, rowRe, col) => {
 const readMode = (run, mode) => run.tools.some((t) =>
   (t.name === 'Read' && new RegExp(`modes[\\\\/]${mode}\\.md$`).test(t.input?.file_path ?? '')) ||
   (['Bash', 'PowerShell'].includes(t.name) && new RegExp(`modes[\\\\/]${mode}\\.md`).test(t.input?.command ?? '')));
+// True when the agent read the project's terms.md (billing folder), by the Read tool or a shell command.
+const readTerms = (run) => run.tools.some((t) =>
+  (t.name === 'Read' && /billing[\\/]terms\.md$/.test(t.input?.file_path ?? '')) ||
+  (['Bash', 'PowerShell'].includes(t.name) && /billing/.test(t.input?.command ?? '') && /\bterms\b/.test(t.input?.command ?? '')));
 const section = (text, re) => text.split(/^## /m).find((s) => re.test(s)) ?? '';
 const readIf = (path) => (existsSync(path) ? readFileSync(path, 'utf8') : '');
 // The harness is unattended, so nobody answers: accept the three options printed, or the row's
@@ -314,16 +318,19 @@ const SCENARIOS = {
       // The cell may show its working first (1.0 h + 0.5 h = 1.5 h); the result is last.
       const lenHead = sessionsPart.split('\n').find((l) => /^\|[^\n]*Length/i.test(l)) ?? '';
       const lenCol = lenHead.split('|').findIndex((c) => /Length/i.test(c));
-      const cellHours = (cell) => {
-        const h = [...cell.matchAll(/(?<![\d.])(\d+(?:\.\d+)?)\s*(h|hrs?|hours?)\b/gi)].at(-1);
-        const m = [...cell.matchAll(/(?<![\d.])(\d+(?:\.\d+)?)\s*min\b/gi)].at(-1);
+      // A cell may lead with the total and show its working in parentheses (1.5 h (1.0 h + 0.5 h)), so read
+      // the part before the first parenthesis when it has a number, else the whole cell.
+      const pickHours = (s) => {
+        const h = [...s.matchAll(/(?<![\d.])(\d+(?:\.\d+)?)\s*(h|hrs?|hours?)\b/gi)].at(-1);
+        const m = [...s.matchAll(/(?<![\d.])(\d+(?:\.\d+)?)\s*min\b/gi)].at(-1);
         return h ? +h[1] : m ? m[1] / 60 : NaN;
       };
+      const cellHours = (cell) => { const v = pickHours(cell.split('(')[0]); return Number.isNaN(v) ? pickHours(cell) : v; };
       const lengthHours = (l) => {
         const cells = l.split('|');
         return cellHours(cells[lenCol > 0 ? lenCol : cells.length - 2] ?? '');
       };
-      ok(near(1.5)(cellHours('1.0 h + 0.5 h = 1.5 h')), 'length helper reads the last h number of a cell that shows its working (1.0 h + 0.5 h = 1.5 h → 1.5)');
+      ok(near(1.5)(cellHours('1.0 h + 0.5 h = 1.5 h')) && near(1.5)(cellHours('1.5 h (1.0 h + 0.5 h)')), 'length helper reads the total of a cell that shows its working before or after it (1.0 h + 0.5 h = 1.5 h, 1.5 h (1.0 h + 0.5 h) → 1.5)');
       const lengths = sessions.map(lengthHours);
       ok(sessions.length === 2 && lengths.some(near(1.5)) && lengths.some(near(1.0)), `two sessions of 1.5 h (90 min) and 1.0 h (60 min) from author dates (${sessions.length} found: ${lengths.join(', ')} h)`);
       ok(sessions.some((l) => /15:30/.test(l)) && !sessions.some((l) => /12:00/.test(l)), 'session ends use author times (15:30), not the push time (12:00)');
@@ -350,6 +357,7 @@ const SCENARIOS = {
       {
         prompt: '/price approve 6',
         check(f, run, ok) {
+          ok(readMode(run, 'approve'), 'read modes/approve.md');
           const ledger = readFileSync(join(f.hub, 'docs/billing/ledger.md'), 'utf8');
           const row = ledger.split('\n').find((l) => /^\|\s*6\s*\|/.test(l)) ?? '';
           ok(/\bPending\b/.test(row) && !/\bApproved\b/.test(row), 'ledger row 6 still Pending after approve with no amount');
@@ -401,13 +409,15 @@ const SCENARIOS = {
         prompt: '/price audit 7',
         prepare(f) { const d = join(f.hub, 'docs/billing/audits'); f.auditsBefore = existsSync(d) ? readdirSync(d) : []; },
         check(f, run, ok) {
+          ok(readMode(run, 'legacy'), 'read modes/legacy.md for a legacy line');
+          ok(readTerms(run), 'read terms.md');
           const dir = join(f.hub, 'docs/billing/audits');
           const added = (existsSync(dir) ? readdirSync(dir) : []).filter((n) => !f.auditsBefore.includes(n));
           ok(added.length === 1, `one new audit file for row 7 (${added.join(', ') || 'none'})`);
           const audit = added.length ? readFileSync(join(dir, added[0]), 'utf8') : '';
           const seen = audit + '\n' + run.text;
           const rows = audit.split('\n').filter((l) => l.startsWith('|'));
-          ok(/Basis[^\n]*legacy/i.test(audit), 'audit states Basis legacy');
+          ok(/Basis\b[\s\S]{0,80}legacy/i.test(audit), 'audit states Basis legacy (on the Basis line or the line after a Basis heading)');
           // Wording free: a negating sentence ("Measured hours are not used") passes; a commit hours figure (2.5 h, 150 min, 150.00) in a non-negated line, or a Measured hours line carrying 2.5, fails.
           const hoursLeak = audit.split('\n').filter((l) => !/\b(not|never|no|n't|without|ignored|unused|excluded)\b/i.test(l))
             .filter((l) => /(^|[^\d.])2\.50*\s*(h|hrs?|hours?)\b|(^|[^\d.])150\s*min|\b150\.00\b/i.test(l) || (/Measured hours/i.test(l) && nums(l).some(near(2.5))));
@@ -501,7 +511,7 @@ const SCENARIOS = {
       ok(files.length === 1, `one audit file written (${files.join(', ') || 'none'})`);
       const audit = files.length ? readFileSync(join(dir, files[0]), 'utf8') : '';
       const rows = audit.split('\n').filter((l) => l.startsWith('|'));
-      ok(/Basis[^\n]*legacy/i.test(audit), 'audit states Basis legacy');
+      ok(/Basis\b[\s\S]{0,80}legacy/i.test(audit), 'audit states Basis legacy (on the Basis line or the line after a Basis heading)');
       // Score 1.80: route 1.0 + proxy as Component 0.25 + 110 lines 0.55. Proxy as Route 2.55, cron as job 3.30, moved lines counted 2.05.
       ok(numsAfter(audit, /Size score/i).some(near(1.8)), 'size score 1.80 (1 route + 1 component + 110 lines; proxy is not a Route, cron is not a job, moved lines excluded)');
       ok(rows.some((l) => /Component/i.test(l) && nums(l).some(near(0.25))), 'the thin admin proxy counted as a Component (0.25)');
@@ -553,6 +563,60 @@ const SCENARIOS = {
       ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged');
       ok(/\bsow\b/i.test(run.text), 'offers /price sow');
       ok(scopeUntouched(f), 'no scope row or spec changed');
+      ok(noPush(run), 'no git push, no gh pr');
+    },
+  },
+  // Independence: contract terms come from docs/billing/terms.md, never from the skill. A second project's
+  // terms share nothing with the base terms, so a leftover 15%, 14 days, Agreement or 2.4b is a leak.
+  terms: {
+    about: '/price reads the contract from terms.md: with 10% a year in twelve parts, a 30 day warranty and other clause numbers, quote shows 3.42 and 4.08 a month and sow register prints 3.42, 30 days, the Services Contract 7.1 and 9.4, never 15%, 14 days, the Agreement or 2.4b',
+    state: 'hub',
+    prepare(f) { makeLifecycleFixture(f.hub, f.api, 'quote'); makeSecondProjectTerms(f.hub); f.retainerBefore = approvedCols(f.hub); },
+    prompt: '/price quote 12',
+    check(f, run, ok) {
+      ok(readHub(run), 'read price/hub.md');
+      ok(readTerms(run), 'read terms.md');
+      const dir = join(f.hub, 'docs/billing/audits');
+      const files = (existsSync(dir) ? readdirSync(dir) : []).filter((n) => /-estimate\.md$/.test(n));
+      ok(files.length === 1, `one estimate file (${files.join(', ') || 'none'})`);
+      const est = files.length ? readFileSync(join(dir, files[0]), 'utf8') : '';
+      const ret = section(est, /^Retainer/i);
+      ok(nums(ret).some(near(3.42)) && nums(ret).some(near(4.08)), 'retainer effect 3.42 a month (410.00 x 0.10 / 12) and 4.08 (490.00 x 0.10 / 12)');
+      ok(!nums(ret).some(near(61.5)) && !nums(ret).some(near(73.5)), 'no 15% figure (61.50 or 73.50)');
+      ok(/10\s*%/.test(ret) && !/15\s*%|\bAgreement\b|\b2\.4(b|\(b\))/.test(est), 'estimate names 10% and no 15%, Agreement or clause 2.4');
+      ok(approvedCols(f.hub) === f.retainerBefore, 'retainer-schedule.md approved columns unchanged');
+      ok(noPush(run), 'no git push, no gh pr');
+    },
+    then: [
+      {
+        prompt: '/price sow 12 register',
+        check(f, run, ok) {
+          ok(readMode(run, 'sow'), 'read modes/sow.md');
+          const sow = sowText(f);
+          ok(numsAfter(sow, /Monthly increase/i).some(near(3.42)), 'monthly increase 3.42 (410.00 x 0.10 / 12)');
+          ok(/10\s*%\s*a year/i.test(sow) && /twelve/i.test(sow), 'increase worded from increment_text (10% a year, twelve parts)');
+          ok(/Services Contract/.test(sow) && /7\.1/.test(sow) && /9\.4/.test(sow), 'clauses 7.1 and 9.4 of the Services Contract');
+          ok(numsAfter(sow, /Warranty/i).some(near(30)) && !/\b14\s*(calendar\s*)?days?/i.test(sow), 'warranty 30 days, no 14 days');
+          ok(/15th/.test(sow) && /30 days/.test(sow), 'payment line from payment_terms (the 15th, 30 days)');
+          ok(!/15\s*%|\bAgreement\b|2\.4b|\b4\.2\b/.test(sow), 'no 15%, Agreement, 2.4b or 4.2 left in the SOW');
+          ok(noPush(run), 'no git push, no gh pr');
+        },
+      },
+    ],
+  },
+  // A project with no terms.md: the skill stops, names the file and offers the template; it writes nothing.
+  termsmissing: {
+    about: '/price quote with no terms.md stops, names terms.md, offers the template and writes no estimate and no ledger change',
+    state: 'hub',
+    prepare(f) { makeLifecycleFixture(f.hub, f.api, 'quote'); rmSync(join(f.hub, 'docs/billing/terms.md')); f.ledgerBefore = ledgerOf(f); },
+    prompt: '/price quote 12',
+    check(f, run, ok) {
+      const dir = join(f.hub, 'docs/billing/audits');
+      const files = (existsSync(dir) ? readdirSync(dir) : []).filter((n) => /-estimate\.md$/.test(n));
+      ok(files.length === 0, `no estimate file written (${files.join(', ') || 'none'})`);
+      ok(ledgerOf(f) === f.ledgerBefore, 'ledger unchanged');
+      ok(/terms\.md/.test(run.text) && /\b(refus\w*|stop\w*|cannot|can't|won't|missing|without|need\w*)\b/i.test(run.text), 'says terms.md is missing and stops');
+      ok(/template/i.test(run.said), 'offers the template');
       ok(noPush(run), 'no git push, no gh pr');
     },
   },
