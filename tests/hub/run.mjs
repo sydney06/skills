@@ -5,6 +5,9 @@
 //   npm run test:hub -- setup develop   run only the named scenarios
 //   npm run test:hub -- --model sonnet  pass a model to the agent
 //   npm run test:hub -- --keep          keep fixtures for inspection
+//   npm run test:hub -- --list          print the scenario names and exit (free)
+//
+// Importing this file runs nothing; only executing it does.
 //
 // Each scenario costs real tokens (roughly $0.5 to $5). Transcripts are written to
 // tests/hub/.runs/<timestamp>/<scenario>.jsonl. Fixtures use local bare repos as
@@ -13,7 +16,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdi
 import { join, dirname, relative } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildFixture, installSkills, addGatePrefs, makeUncommittedChanges, makeFeatureBranches, makePriceFixture, makeLifecycleFixture, makeCalibrationFixture, makeLegacySowFixture, makeLegacyApprovedFixture, makeSecondProjectTerms, git } from './fixture.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -806,39 +809,46 @@ const SCENARIOS = {
 };
 
 // ---- main ------------------------------------------------------------------
-const names = only.length ? only : Object.keys(SCENARIOS);
-const unknown = names.filter((n) => !SCENARIOS[n]);
-if (unknown.length) { console.error(`Unknown scenario(s): ${unknown.join(', ')}. Known: ${Object.keys(SCENARIOS).join(', ')}`); process.exit(2); }
+// Runs only when this file is executed (node tests/hub/run.mjs, npm run test:hub), never when it is
+// imported. Importing it used to start the whole suite, real agent sessions and all.
+function main() {
+  if (flag('--list')) { console.log(Object.keys(SCENARIOS).join('\n')); process.exit(0); }
+  const names = only.length ? only : Object.keys(SCENARIOS);
+  const unknown = names.filter((n) => !SCENARIOS[n]);
+  if (unknown.length) { console.error(`Unknown scenario(s): ${unknown.join(', ')}. Known: ${Object.keys(SCENARIOS).join(', ')}`); process.exit(2); }
 
-const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-const runsDir = join(HERE, '.runs', stamp);
-mkdirSync(runsDir, { recursive: true });
-let failed = 0, total = 0;
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const runsDir = join(HERE, '.runs', stamp);
+  mkdirSync(runsDir, { recursive: true });
+  let failed = 0, total = 0;
 
-for (const name of names) {
-  const s = SCENARIOS[name];
-  const root = mkdtempSync(join(tmpdir(), `hubtest-${name}-`));
-  const f = buildFixture(root, s.state);
-  s.prepare?.(f);
-  f.before = { api: sha(f.api, 'main'), web: f.web ? sha(f.web, 'main') : null };
-  console.log(`\n▶ ${name}: ${s.about}`);
-  const run = runAgent(s.cwd ? s.cwd(f) : f.project, s.prompt, join(runsDir, `${name}.jsonl`));
-  total += run.cost;
-  if (run.error) console.log(`  agent error: ${String(run.error).slice(0, 300)}`);
-  let pass = true;
-  const ok = (cond, label) => { console.log(`  ${cond ? '✔' : '✘'} ${label}`); if (!cond) pass = false; };
-  try { s.check(f, run, ok); } catch (e) { ok(false, `check threw: ${e.message}`); }
-  for (const [i, t] of [].concat(s.then ?? []).entries()) {
-    t.prepare?.(f);
-    const run2 = runAgent(s.cwd ? s.cwd(f) : f.project, t.prompt, join(runsDir, `${name}-then${i + 1}.jsonl`));
-    total += run2.cost;
-    console.log(`  then: ${t.prompt}`);
-    try { t.check(f, run2, ok); } catch (e) { ok(false, `then check threw: ${e.message}`); }
+  for (const name of names) {
+    const s = SCENARIOS[name];
+    const root = mkdtempSync(join(tmpdir(), `hubtest-${name}-`));
+    const f = buildFixture(root, s.state);
+    s.prepare?.(f);
+    f.before = { api: sha(f.api, 'main'), web: f.web ? sha(f.web, 'main') : null };
+    console.log(`\n▶ ${name}: ${s.about}`);
+    const run = runAgent(s.cwd ? s.cwd(f) : f.project, s.prompt, join(runsDir, `${name}.jsonl`));
+    total += run.cost;
+    if (run.error) console.log(`  agent error: ${String(run.error).slice(0, 300)}`);
+    let pass = true;
+    const ok = (cond, label) => { console.log(`  ${cond ? '✔' : '✘'} ${label}`); if (!cond) pass = false; };
+    try { s.check(f, run, ok); } catch (e) { ok(false, `check threw: ${e.message}`); }
+    for (const [i, t] of [].concat(s.then ?? []).entries()) {
+      t.prepare?.(f);
+      const run2 = runAgent(s.cwd ? s.cwd(f) : f.project, t.prompt, join(runsDir, `${name}-then${i + 1}.jsonl`));
+      total += run2.cost;
+      console.log(`  then: ${t.prompt}`);
+      try { t.check(f, run2, ok); } catch (e) { ok(false, `then check threw: ${e.message}`); }
+    }
+    console.log(`  ${pass ? 'PASS' : 'FAIL'} · $${run.cost.toFixed(2)} · fixture ${flag('--keep') || !pass ? root : '(removed)'}`);
+    if (!pass) failed++;
+    else if (!flag('--keep')) rmSync(root, { recursive: true, force: true });
   }
-  console.log(`  ${pass ? 'PASS' : 'FAIL'} · $${run.cost.toFixed(2)} · fixture ${flag('--keep') || !pass ? root : '(removed)'}`);
-  if (!pass) failed++;
-  else if (!flag('--keep')) rmSync(root, { recursive: true, force: true });
+
+  console.log(`\n${names.length - failed}/${names.length} scenarios passed · total $${total.toFixed(2)} · transcripts in ${relative(process.cwd(), runsDir)}`);
+  process.exit(failed ? 1 : 0);
 }
 
-console.log(`\n${names.length - failed}/${names.length} scenarios passed · total $${total.toFixed(2)} · transcripts in ${relative(process.cwd(), runsDir)}`);
-process.exit(failed ? 1 : 0);
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
