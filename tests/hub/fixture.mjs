@@ -435,6 +435,16 @@ Used by /price audit for a feature with Basis legacy.
 ## Excluded from the count
 
 Lockfiles, the generated Prisma client, snapshots, build output, vendored code, formatting only changes and renamed files with no change in content.
+
+## Reference items
+
+| Item | Feature | Valuation | Counts |
+|---|---|---|---|
+| 1 | Find another driver option | 120.00 | yes |
+| 2 | Wait fee and multi stop timer | 200.00 | yes |
+| 3 | Taxi driver flow | 500.00 | yes |
+| 4 | Forward dispatch and ride queuing | 650.00 | yes |
+| 5 | Driver shift scheduling | 700.00 | Waived |
 `);
   write(join(hub, 'docs/billing/retainer-schedule.md'), `
 # Retainer schedule
@@ -454,7 +464,59 @@ The increment is 15% of the approved fee and starts on the 1st of the month afte
 |---|---|---|---|---|---|
 | (none approved yet) | | | | | |
 `);
+  write(join(hub, 'docs/billing/terms.md'), `
+# Billing terms
+
+| Key | Value |
+|---|---|
+| contract_label | the Agreement |
+| term_end | 2027-03-31 |
+| increment_rate | 0.15 |
+| increment_divisor | 1 |
+| increment_text | 15% of the fee |
+| increment_short | 15% |
+| warranty_days | 14 |
+| clause_increment | 2.4b |
+| clause_sow | 1.3 |
+| clause_maintenance | 1.2 |
+| clause_payment | 4.2, 4.3 |
+| payment_terms | invoice by the 1st, due the 5th, late interest after the 10th |
+| maintenance_test | existing deployed code fails its documented or reasonably expected function (a Bug); a security fix; a third party's change broke the Platform |
+| new_feature_test | it changes behavior, adds business logic, changes a user flow, or adds a capability |
+| measured_from | 2026-09-30 |
+| deploy_date_sources | the PR merge date |
+`);
   commitAll(hub, 'billing fixture');
+}
+
+// A second project's contract, for the `terms` scenario: nothing here matches the base terms above,
+// so a figure or clause that comes from the skill instead of terms.md shows up as a mismatch.
+//   increment 10% a year paid in 12 parts: 410.00 x 0.10 / 12 = 3.42 a month, 490.00 x 0.10 / 12 = 4.08
+//   warranty 30 days; contract name "the Services Contract"; increment clause 7.1, payment clause 9.4
+export function makeSecondProjectTerms(hub) {
+  write(join(hub, 'docs/billing/terms.md'), `
+# Billing terms
+
+| Key | Value |
+|---|---|
+| contract_label | the Services Contract |
+| term_end | 2028-12-31 |
+| increment_rate | 0.10 |
+| increment_divisor | 12 |
+| increment_text | 10% a year of the fee, paid in twelve equal monthly parts |
+| increment_short | 10% a year, in twelfths |
+| warranty_days | 30 |
+| clause_increment | 7.1 |
+| clause_sow | 3.2 |
+| clause_maintenance | 3.1 |
+| clause_payment | 9.4 |
+| payment_terms | invoice on the 15th, payable within 30 days |
+| maintenance_test | the Platform fails its written specification, or a security flaw is found |
+| new_feature_test | the request adds a capability the specification does not describe |
+| measured_from | 2026-09-30 |
+| deploy_date_sources | the PR merge date |
+`);
+  commitAll(hub, 'second project terms');
 }
 
 // Lifecycle fixture (spec section 15) on top of the /price fixture: rates gain a Ceiling of 20%, the
